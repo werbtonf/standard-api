@@ -144,6 +144,7 @@ export async function connectWA(options = {}) {
         const pairDeviceNode = getBinaryNodeChild(node, 'pair-device');
         const refNodes = getBinaryNodeChildren(pairDeviceNode, 'ref');
         const refs = refNodes.map((r) => r.content.toString('utf-8'));
+        console.log('[PAIR-DEVICE RECV] id:', node.attrs.id, 'refs:', refs.length);
         let idx = 0;
 
         const renderQR = (ref) => {
@@ -171,24 +172,29 @@ export async function connectWA(options = {}) {
         };
         genPairQR();
       } catch (e) {
+        console.error('[PAIR-DEVICE ERROR]:', e);
         ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: e } });
       }
     };
 
     const handlePairSuccess = async (node) => {
       try {
+        console.log('[PAIR-SUCCESS RECV] Recebido stanza pair-success:', JSON.stringify(node).slice(0, 300));
         if (qrTimer) clearTimeout(qrTimer);
         const { reply, creds: newCreds } = await configureSuccessfulPairing(node, {
           advSecretKey: currentCreds.advSecretKey,
           signedIdentityKey: currentCreds.signedIdentityKey
         });
+        console.log('[PAIR-SUCCESS PARSED] Conta:', newCreds.me?.id, 'Enviando confirmacao reply...');
         Object.assign(currentCreds, newCreds);
         ev.emit('creds.update', newCreds);
         ev.emit('connection.update', { isNewLogin: true, qr: undefined });
         await sock.sendNode(reply);
+        console.log('[PAIR-SUCCESS CONFIRMED] Confirmacao enviada! Reconectando em 1s...');
         setTimeout(() => reconnect(), 1000);
         if (pairResolve) pairResolve(currentCreds);
       } catch (e) {
+        console.error('[PAIR-SUCCESS ERROR]:', e);
         ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: e } });
       }
     };

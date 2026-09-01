@@ -6,7 +6,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
+    "dev": "node --watch-path=src src/server.js",
     "register": "node examples/register.js",
     "send": "node examples/send-message.js",
     "listen": "node examples/listen-messages.js"
