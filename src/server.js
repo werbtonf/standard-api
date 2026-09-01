@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { WhatsAppInstance } from './instance.js';
+import { InstanceManager } from './instance.js';
 
 const fastify = Fastify({
   logger: {
@@ -31,13 +31,13 @@ await fastify.register(cors, {
 await fastify.register(swagger, {
   openapi: {
     info: {
-      title: 'standard-api - WhatsApp REST API',
-      description: 'API REST de alta performance para WhatsApp Web Multi-Device implementada em Node.js com criptografia Noise XX e Signal Protocol E2EE.',
+      title: 'standard-api - WhatsApp Multi-Instance REST API',
+      description: 'API REST Multi-Instâncias de alta performance para WhatsApp Web (estilo Evolution / Z-API), implementada em Node.js com criptografia Noise XX e Signal Protocol E2EE.',
       version: '1.0.0'
     },
     tags: [
-      { name: 'Instance', description: 'Gerenciamento de conexão, sessão e QR Code' },
-      { name: 'Messages', description: 'Envio e gerenciamento de mensagens' }
+      { name: 'Instance', description: 'Gerenciamento de Múltiplas Instâncias (Criar, Listar, Conectar, QR Code, Deletar)' },
+      { name: 'Messages', description: 'Envio de Mensagens por Instância' }
     ]
   }
 });
@@ -52,9 +52,9 @@ await fastify.register(swaggerUi, {
   transformStaticCSP: (header) => header
 });
 
-// Instância principal do WhatsApp
-const instance = new WhatsAppInstance({
-  sessionDir: process.env.SESSION_DIR || './sessions'
+// Gerenciador de Instâncias
+const manager = new InstanceManager({
+  baseDir: process.env.SESSION_DIR || './sessions'
 });
 
 // Rota inicial / Info
@@ -66,30 +66,118 @@ fastify.get('/', {
   return {
     name: 'standard-api',
     version: '1.0.0',
-    description: 'WhatsApp Web Multi-Device REST API (Noise XX + Signal E2EE)',
+    description: 'WhatsApp Web Multi-Device & Multi-Instance REST API (Noise XX + Signal E2EE)',
     documentation: '/docs',
+    instancesCount: manager.instances.size,
     endpoints: {
       docs: 'GET /docs',
-      status: 'GET /instance/status',
-      qr: 'GET /instance/qr',
-      sendText: 'POST /message/send-text',
-      connect: 'POST /instance/connect',
-      logout: 'POST /instance/logout'
+      createInstance: 'POST /instance/create',
+      listInstances: 'GET /instance/list',
+      status: 'GET /instance/status/:instanceName',
+      qr: 'GET /instance/qr/:instanceName',
+      sendText: 'POST /message/send-text/:instanceName',
+      connect: 'POST /instance/connect/:instanceName',
+      logout: 'POST /instance/logout/:instanceName',
+      deleteInstance: 'DELETE /instance/delete/:instanceName'
     }
   };
 });
 
-// 1. Status da Instância
-fastify.get('/instance/status', {
+// ==========================================
+// 1. ROTAS DE GERENCIAMENTO DE INSTÂNCIAS
+// ==========================================
+
+// Criar Nova Instância
+fastify.post('/instance/create', {
   schema: {
     tags: ['Instance'],
-    summary: 'Status da Conexão',
-    description: 'Retorna o estado atual da conexão do WhatsApp e informações do número conectado.',
+    summary: 'Criar Nova Instância',
+    description: 'Cria e inicializa uma nova instância independente do WhatsApp (ex: "vendas", "suporte", "atendimento").',
+    body: {
+      type: 'object',
+      required: ['instanceName'],
+      properties: {
+        instanceName: {
+          type: 'string',
+          description: 'Nome único identificador da instância',
+          default: 'atendimento-01'
+        }
+      }
+    },
     response: {
       200: {
         type: 'object',
         properties: {
-          status: { type: 'string', description: 'open, connecting, qrcode, close ou disconnected' },
+          status: { type: 'string' },
+          instance: {
+            type: 'object',
+            properties: {
+              instanceName: { type: 'string' },
+              status: { type: 'string' },
+              connected: { type: 'boolean' }
+            }
+          }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const { instanceName } = request.body;
+  return await manager.createInstance(instanceName);
+});
+
+// Listar Todas as Instâncias
+fastify.get('/instance/list', {
+  schema: {
+    tags: ['Instance'],
+    summary: 'Listar Todas as Instâncias',
+    description: 'Retorna a lista de todas as instâncias ativas com seus respectivos status e números conectados.',
+    response: {
+      200: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            instanceName: { type: 'string' },
+            status: { type: 'string' },
+            connected: { type: 'boolean' },
+            me: {
+              type: 'object',
+              nullable: true,
+              properties: {
+                id: { type: 'string' },
+                lid: { type: 'string' }
+              }
+            },
+            uptime: { type: 'number' },
+            timestamp: { type: 'string' }
+          }
+        }
+      }
+    }
+  }
+}, async () => {
+  return manager.listInstances();
+});
+
+// Obter Status de uma Instância (com ou sem param)
+fastify.get('/instance/status/:instanceName', {
+  schema: {
+    tags: ['Instance'],
+    summary: 'Status da Instância',
+    description: 'Retorna o estado da conexão e dados da conta de uma instância específica.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          instanceName: { type: 'string' },
+          status: { type: 'string' },
           connected: { type: 'boolean' },
           me: {
             type: 'object',
@@ -99,26 +187,45 @@ fastify.get('/instance/status', {
               lid: { type: 'string' }
             }
           },
-          uptime: { type: 'number', description: 'Tempo em segundos desde a inicialização' },
-          timestamp: { type: 'string', format: 'date-time' }
+          uptime: { type: 'number' },
+          timestamp: { type: 'string' }
         }
       }
     }
   }
-}, async () => {
+}, async (request) => {
+  const instance = manager.getInstance(request.params.instanceName);
   return instance.getStatus();
 });
 
-// 2. QR Code da Instância
-fastify.get('/instance/qr', {
+fastify.get('/instance/status', {
   schema: {
     tags: ['Instance'],
-    summary: 'Obter QR Code',
-    description: 'Retorna o QR Code em formato JSON contendo o código raw e a imagem em base64.',
+    summary: 'Status da Instância Padrão',
+    description: 'Retorna o status da instância padrão ("default").'
+  }
+}, async () => {
+  const instance = manager.getInstance('default');
+  return instance.getStatus();
+});
+
+// Obter QR Code de uma Instância
+fastify.get('/instance/qr/:instanceName', {
+  schema: {
+    tags: ['Instance'],
+    summary: 'Obter QR Code da Instância',
+    description: 'Retorna o QR Code ativo em JSON (base64) para pareamento no WhatsApp.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
     response: {
       200: {
         type: 'object',
         properties: {
+          instanceName: { type: 'string' },
           status: { type: 'string' },
           qr: { type: 'string', nullable: true },
           qrBase64: { type: 'string', nullable: true }
@@ -126,68 +233,128 @@ fastify.get('/instance/qr', {
       }
     }
   }
-}, async () => {
+}, async (request) => {
+  const instance = manager.getInstance(request.params.instanceName);
   return instance.getQR();
 });
 
-// 3. Conectar / Iniciar
+fastify.get('/instance/qr', {
+  schema: {
+    tags: ['Instance'],
+    summary: 'Obter QR Code da Instância Padrão',
+    description: 'Retorna o QR Code da instância padrão ("default").'
+  }
+}, async () => {
+  const instance = manager.getInstance('default');
+  return instance.getQR();
+});
+
+// Conectar / Reconectar Instância
+fastify.post('/instance/connect/:instanceName', {
+  schema: {
+    tags: ['Instance'],
+    summary: 'Conectar Instância',
+    description: 'Inicia o processo de conexão ou gera um novo QR Code para a instância.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    }
+  }
+}, async (request) => {
+  const instance = manager.getInstance(request.params.instanceName);
+  if (instance.status === 'open') {
+    return { status: 'ALREADY_CONNECTED', message: `Instância "${instance.name}" já está conectada.` };
+  }
+  await instance.init();
+  return { status: 'CONNECTING', message: `Conexão iniciada para a instância "${instance.name}".` };
+});
+
 fastify.post('/instance/connect', {
   schema: {
     tags: ['Instance'],
-    summary: 'Iniciar Conexão',
-    description: 'Inicia o processo de conexão do WhatsApp ou gera um novo QR Code caso desconectado.',
-    response: {
-      200: {
-        type: 'object',
-        properties: {
-          status: { type: 'string' },
-          message: { type: 'string' }
-        }
+    summary: 'Conectar Instância Padrão'
+  }
+}, async () => {
+  const instance = manager.getInstance('default');
+  if (instance.status === 'open') {
+    return { status: 'ALREADY_CONNECTED', message: 'Instância "default" já está conectada.' };
+  }
+  await instance.init();
+  return { status: 'CONNECTING', message: 'Conexão iniciada para a instância "default".' };
+});
+
+// Logout da Instância
+fastify.post('/instance/logout/:instanceName', {
+  schema: {
+    tags: ['Instance'],
+    summary: 'Desconectar Instância',
+    description: 'Encerra a conexão e limpa a sessão da instância especificada.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
       }
     }
   }
-}, async () => {
-  if (instance.status === 'open') {
-    return { status: 'ALREADY_CONNECTED', message: 'Instância já está conectada.' };
-  }
-  await instance.init();
-  return { status: 'CONNECTING', message: 'Processo de conexão iniciado.' };
+}, async (request) => {
+  const instance = manager.getInstance(request.params.instanceName);
+  await instance.logout();
+  return { status: 'LOGGED_OUT', message: `Instância "${instance.name}" desconectada com sucesso.` };
 });
 
-// 4. Desconectar / Logout
 fastify.post('/instance/logout', {
   schema: {
     tags: ['Instance'],
-    summary: 'Desconectar / Logout',
-    description: 'Encerra a conexão ativa e remove as credenciais da sessão.',
-    response: {
-      200: {
-        type: 'object',
-        properties: {
-          status: { type: 'string' },
-          message: { type: 'string' }
-        }
+    summary: 'Desconectar Instância Padrão'
+  }
+}, async () => {
+  const instance = manager.getInstance('default');
+  await instance.logout();
+  return { status: 'LOGGED_OUT', message: 'Instância "default" desconectada com sucesso.' };
+});
+
+// Deletar Instância
+fastify.delete('/instance/delete/:instanceName', {
+  schema: {
+    tags: ['Instance'],
+    summary: 'Deletar Instância',
+    description: 'Desconecta e apaga permanentemente a instância e seus arquivos de sessão.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string' }
       }
     }
   }
-}, async () => {
-  await instance.logout();
-  return { status: 'LOGGED_OUT', message: 'Sessão encerrada com sucesso.' };
+}, async (request) => {
+  return await manager.deleteInstance(request.params.instanceName);
 });
 
-// 5. Enviar Mensagem de Texto
-fastify.post('/message/send-text', {
+// ==========================================
+// 2. ROTAS DE ENVIO DE MENSAGENS
+// ==========================================
+
+// Enviar Mensagem de Texto com nome de instância na URL
+fastify.post('/message/send-text/:instanceName', {
   schema: {
     tags: ['Messages'],
-    summary: 'Enviar Mensagem de Texto',
-    description: 'Envia uma mensagem de texto cifrada com Signal Protocol E2EE para o número especificado.',
+    summary: 'Enviar Mensagem de Texto por Instância',
+    description: 'Envia uma mensagem de texto cifrada com Signal Protocol E2EE utilizando uma instância específica.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
     body: {
       type: 'object',
       required: ['number', 'text'],
       properties: {
         number: {
           type: 'string',
-          description: 'Número do destinatário com DDD (com ou sem DDI 55). Ex: "99991081780" ou "559991081780"'
+          description: 'Número do destinatário com DDD (ex: "99991081780" ou "559991081780")'
         },
         text: {
           type: 'string',
@@ -200,6 +367,7 @@ fastify.post('/message/send-text', {
         type: 'object',
         properties: {
           status: { type: 'string' },
+          instanceName: { type: 'string' },
           messageId: { type: 'string' },
           to: { type: 'string' },
           timestamp: { type: 'number' }
@@ -221,6 +389,7 @@ fastify.post('/message/send-text', {
     }
   }
 }, async (request, reply) => {
+  const instanceName = request.params.instanceName || 'default';
   const { number, text, message } = request.body;
   const msgContent = text || message;
 
@@ -230,9 +399,90 @@ fastify.post('/message/send-text', {
   }
 
   try {
+    const instance = manager.getInstance(instanceName);
     const result = await instance.sendMessage(number, msgContent);
     return {
       status: 'SUCCESS',
+      instanceName,
+      messageId: result.key?.id,
+      to: result.key?.remoteJid,
+      timestamp: result.messageTimestamp
+    };
+  } catch (err) {
+    reply.status(500);
+    return {
+      status: 'ERROR',
+      error: err.message
+    };
+  }
+});
+
+// Enviar Mensagem de Texto na rota genérica (com instanceName opcional no body)
+fastify.post('/message/send-text', {
+  schema: {
+    tags: ['Messages'],
+    summary: 'Enviar Mensagem de Texto',
+    description: 'Envia uma mensagem de texto cifrada com Signal Protocol E2EE. Opcionalmente informe "instanceName" no body (padrão: "default").',
+    body: {
+      type: 'object',
+      required: ['number', 'text'],
+      properties: {
+        instanceName: {
+          type: 'string',
+          description: 'Nome da instância que enviará a mensagem (padrão: "default")',
+          default: 'default'
+        },
+        number: {
+          type: 'string',
+          description: 'Número do destinatário com DDD (ex: "99991081780" ou "559991081780")'
+        },
+        text: {
+          type: 'string',
+          description: 'Texto da mensagem a ser enviada'
+        }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          status: { type: 'string' },
+          instanceName: { type: 'string' },
+          messageId: { type: 'string' },
+          to: { type: 'string' },
+          timestamp: { type: 'number' }
+        }
+      },
+      400: {
+        type: 'object',
+        properties: {
+          error: { type: 'string' }
+        }
+      },
+      500: {
+        type: 'object',
+        properties: {
+          status: { type: 'string' },
+          error: { type: 'string' }
+        }
+      }
+    }
+  }
+}, async (request, reply) => {
+  const { instanceName = 'default', number, text, message } = request.body;
+  const msgContent = text || message;
+
+  if (!msgContent || typeof msgContent !== 'string' || !msgContent.trim()) {
+    reply.status(400);
+    return { error: 'O campo "text" é obrigatório e não pode ser vazio.' };
+  }
+
+  try {
+    const instance = manager.getInstance(instanceName);
+    const result = await instance.sendMessage(number, msgContent);
+    return {
+      status: 'SUCCESS',
+      instanceName: instance.name,
       messageId: result.key?.id,
       to: result.key?.remoteJid,
       timestamp: result.messageTimestamp
@@ -250,14 +500,17 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 try {
-  await instance.init();
+  // Inicializa todas as instâncias existentes
+  await manager.initAll();
+
+  // Inicia o servidor HTTP
   await fastify.listen({ port: PORT, host: HOST });
   console.log(`
-🚀 standard-api REST rodando em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-  console.log(`   - 📖 Swagger Docs:  http://localhost:${PORT}/docs`);
-  console.log(`   - 🔍 Status:        GET  http://localhost:${PORT}/instance/status`);
-  console.log(`   - 📱 QR Code:       GET  http://localhost:${PORT}/instance/qr`);
-  console.log(`   - 💬 Envio Texto:   POST http://localhost:${PORT}/message/send-text
+🚀 standard-api Multi-Instance REST rodando em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+  console.log(`   - 📖 Swagger Docs:       http://localhost:${PORT}/docs`);
+  console.log(`   - 📋 Listar Instâncias:  GET  http://localhost:${PORT}/instance/list`);
+  console.log(`   - ➕ Criar Instância:    POST http://localhost:${PORT}/instance/create`);
+  console.log(`   - 💬 Enviar Mensagem:    POST http://localhost:${PORT}/message/send-text/:instanceName
 `);
 } catch (err) {
   fastify.log.error(err);
