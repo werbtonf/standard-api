@@ -260,7 +260,7 @@ export class WhatsAppInstance {
     if (!cleanNumber) {
       throw new Error('Número de telefone inválido.');
     }
-    return await this.client.sendMedia(cleanNumber, mediaOptions, options);
+    return await this.client.sendMedia(cleanNumber, { ...mediaOptions, sessionDir: this.sessionDir }, options);
   }
 
   getStatus() {

@@ -1,4 +1,6 @@
 import { randomBytes, sha256, hmac, hkdf, aesEncryptCBC, aesDecryptCBC } from './crypto.js';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import https from 'node:https';
 import http from 'node:http';
 import { URL } from 'node:url';
@@ -74,52 +76,84 @@ export function decryptMedia(fileEncBuffer, mediaKey, mediaType) {
 let cachedMediaConn = null;
 
 /**
- * Obtém os hosts e credenciais de upload da CDN do WhatsApp.
+ * Obtém os hosts e credenciais de upload da CDN do WhatsApp com persistência em disco.
  */
-export async function getMediaConn(query, forceRefresh = false) {
+export async function getMediaConn(query, sessionDir = './sessions/default', forceRefresh = false) {
+  const mediaConnFile = join(sessionDir, 'media_conn.json');
+
+  // 1. Tenta carregar do cache em memória
   if (cachedMediaConn && !forceRefresh && (Date.now() - cachedMediaConn.fetchDate < cachedMediaConn.ttl * 1000)) {
     return cachedMediaConn;
   }
 
-  const res = await query({
-    tag: 'iq',
-    attrs: { to: S_WHATSAPP_NET, type: 'set', xmlns: 'w:m' },
-    content: [{ tag: 'media_conn', attrs: {} }]
-  }, 10000);
-
-  const mediaConnNode = (res.content || []).find(c => c && c.tag === 'media_conn');
-  if (!mediaConnNode) {
-    throw new Error('Falha ao obter media_conn do WhatsApp');
+  // 2. Tenta carregar do arquivo em disco
+  if (!forceRefresh && existsSync(mediaConnFile)) {
+    try {
+      const data = JSON.parse(readFileSync(mediaConnFile, 'utf8'));
+      if (data && data.auth && (Date.now() - data.fetchDate < (data.ttl || 604800) * 1000)) {
+        cachedMediaConn = data;
+        return data;
+      }
+    } catch (e) {}
   }
 
-  const hosts = (mediaConnNode.content || [])
-    .filter(c => c && c.tag === 'host')
-    .map(h => ({
-      hostname: h.attrs.hostname,
-      maxContentLengthBytes: +h.attrs.maxContentLengthBytes || 100 * 1024 * 1024
-    }));
+  // 3. Consulta o WhatsApp se necessário
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: { to: S_WHATSAPP_NET, type: 'set', xmlns: 'w:m' },
+      content: [{ tag: 'media_conn', attrs: {} }]
+    }, 8000);
 
-  cachedMediaConn = {
-    auth: mediaConnNode.attrs.auth,
-    ttl: +mediaConnNode.attrs.ttl || 86400,
-    hosts: hosts.length > 0 ? hosts : [{ hostname: 'mmg.whatsapp.net' }, { hostname: 'mms.whatsapp.net' }],
+    const mediaConnNode = (res.content || []).find(c => c && c.tag === 'media_conn');
+    if (mediaConnNode && mediaConnNode.attrs && mediaConnNode.attrs.auth) {
+      const hosts = (mediaConnNode.content || [])
+        .filter(c => c && c.tag === 'host')
+        .map(h => ({
+          hostname: h.attrs.hostname,
+          maxContentLengthBytes: +h.attrs.maxContentLengthBytes || 100 * 1024 * 1024
+        }));
+
+      cachedMediaConn = {
+        auth: mediaConnNode.attrs.auth,
+        ttl: +mediaConnNode.attrs.ttl || 604800,
+        hosts: hosts.length > 0 ? hosts : [{ hostname: 'mmg.whatsapp.net' }, { hostname: 'mms.whatsapp.net' }],
+        fetchDate: Date.now()
+      };
+
+      try {
+        writeFileSync(mediaConnFile, JSON.stringify(cachedMediaConn, null, 2));
+      } catch (e) {}
+
+      return cachedMediaConn;
+    }
+  } catch (err) {
+    console.warn('[getMediaConn] Falha na consulta de media_conn, utilizando fallback:', err.message);
+  }
+
+  // 4. Fallback padrão com hosts conhecidos
+  if (cachedMediaConn) return cachedMediaConn;
+
+  return {
+    auth: '',
+    ttl: 604800,
+    hosts: [{ hostname: 'mmg.whatsapp.net' }, { hostname: 'mms.whatsapp.net' }],
     fetchDate: Date.now()
   };
-
-  return cachedMediaConn;
 }
 
 /**
  * Faz upload do arquivo cifrado para a CDN do WhatsApp.
  */
-export async function uploadMediaToWhatsApp(query, fileEncBuffer, { mediaType, fileEncSha256 }) {
-  const mediaConn = await getMediaConn(query);
+export async function uploadMediaToWhatsApp(query, fileEncBuffer, { mediaType, fileEncSha256, sessionDir }) {
+  const mediaConn = await getMediaConn(query, sessionDir);
   const pathPrefix = MEDIA_PATH_MAP[mediaType] || '/mms/image';
   const fileEncSha256B64Url = fileEncSha256.toString('base64url');
 
   for (const host of mediaConn.hosts) {
-    const auth = encodeURIComponent(mediaConn.auth);
-    const urlStr = `https://${host.hostname}${pathPrefix}/${fileEncSha256B64Url}?auth=${auth}&token=${fileEncSha256B64Url}`;
+    const auth = mediaConn.auth ? encodeURIComponent(mediaConn.auth) : '';
+    const authParam = auth ? `auth=${auth}&` : '';
+    const urlStr = `https://${host.hostname}${pathPrefix}/${fileEncSha256B64Url}?${authParam}token=${fileEncSha256B64Url}`;
     
     try {
       const result = await postBinaryPayload(urlStr, fileEncBuffer);
@@ -208,12 +242,13 @@ export async function getMediaBuffer(input) {
 /**
  * Prepara o objeto Message do WhatsApp com os metadados e upload completos.
  */
-export async function prepareMediaMessage(query, { media, type, caption, fileName, mimetype, ptt, seconds }) {
+export async function prepareMediaMessage(query, { media, type, caption, fileName, mimetype, ptt, seconds, sessionDir }) {
   const rawBuffer = await getMediaBuffer(media);
   const encResult = encryptMedia(rawBuffer, type);
   const uploadResult = await uploadMediaToWhatsApp(query, encResult.fileEnc, {
     mediaType: type,
-    fileEncSha256: encResult.fileEncSha256
+    fileEncSha256: encResult.fileEncSha256,
+    sessionDir
   });
 
   const timestamp = Math.floor(Date.now() / 1000);
