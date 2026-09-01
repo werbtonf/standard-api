@@ -292,7 +292,8 @@ export class WhatsAppInstance {
   async logout() {
     clearTimeout(this.reconnectTimer);
     if (this.client) {
-      try { this.client.close(); } catch (e) {}
+      try { await this.client.logout(); } catch (e) {}
+      this.client = null;
     }
     this.status = 'disconnected';
     this.qr = null;
@@ -300,6 +301,10 @@ export class WhatsAppInstance {
     this.creds = null;
     if (existsSync(this.sessionFile)) {
       try { await unlink(this.sessionFile); } catch (e) {}
+    }
+    const mediaConnFile = join(this.sessionDir, 'media_conn.json');
+    if (existsSync(mediaConnFile)) {
+      try { await unlink(mediaConnFile); } catch (e) {}
     }
   }
 

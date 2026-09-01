@@ -512,6 +512,35 @@ export async function connectWA(options = {}) {
     }
   };
 
+  const logout = async () => {
+    const jid = currentCreds?.me?.id;
+    if (jid && conn?.sock) {
+      try {
+        await conn.sock.sendNode({
+          tag: 'iq',
+          attrs: {
+            to: S_WHATSAPP_NET,
+            type: 'set',
+            id: generateMessageTag(),
+            xmlns: 'md'
+          },
+          content: [
+            {
+              tag: 'remove-companion-device',
+              attrs: {
+                jid,
+                reason: 'user_initiated'
+              }
+            }
+          ]
+        });
+      } catch (e) {
+        console.warn('[logout error]', e.message);
+      }
+    }
+    if (conn) conn.close();
+  };
+
   return {
     ev,
     get sock() { return conn.sock; },
@@ -520,6 +549,7 @@ export async function connectWA(options = {}) {
     sendMessage,
     sendMedia,
     sendReceipt,
+    logout,
     signal: signalRepo,
     close: () => conn.close()
   };
