@@ -17,12 +17,12 @@ export class WhatsAppInstance {
     this.startedAt = null;
     this.isSaving = false;
     this.queuedSave = false;
+    this.reconnectTimer = null;
 
     if (!existsSync(this.sessionDir)) {
       mkdirSync(this.sessionDir, { recursive: true });
     }
 
-    // Se houver uma sessão antiga em /tmp, importa automaticamente
     const legacySession = '/tmp/wa-api-session.json';
     if (!existsSync(this.sessionFile) && existsSync(legacySession)) {
       try {
@@ -72,50 +72,74 @@ export class WhatsAppInstance {
     this.status = 'connecting';
     this.startedAt = new Date();
 
-    this.client = await connectWA({
-      creds: this.creds,
-      browser: ['Ubuntu', 'Chrome', '22.04.4'],
-      pushName: 'standard-api'
-    });
+    try {
+      this.client = await connectWA({
+        creds: this.creds,
+        browser: ['Ubuntu', 'Chrome', '22.04.4'],
+        pushName: 'standard-api'
+      });
 
-    this.client.ev.on('creds.update', () => {
-      this.saveCreds();
-    });
+      this.client.ev.on('creds.update', () => {
+        this.saveCreds();
+      });
 
-    this.client.ev.on('connection.update', async (update) => {
-      if (update.qr) {
-        this.status = 'qrcode';
-        this.qr = update.qr;
-        try {
-          this.qrBase64 = await QRCode.toDataURL(update.qr, { width: 350, margin: 2 });
-        } catch (e) {
-          console.error('[instance] Erro ao gerar QR base64:', e.message);
+      this.client.ev.on('connection.update', async (update) => {
+        if (update.qr) {
+          this.status = 'qrcode';
+          this.qr = update.qr;
+          try {
+            this.qrBase64 = await QRCode.toDataURL(update.qr, { width: 350, margin: 2 });
+          } catch (e) {
+            console.error('[instance] Erro ao gerar QR base64:', e.message);
+          }
         }
-      }
 
-      if (update.connection === 'open') {
-        this.status = 'open';
-        this.qr = null;
-        this.qrBase64 = null;
-        console.log('[instance] Conexão estabelecida como', this.creds.me?.id);
-      }
+        if (update.connection === 'open') {
+          this.status = 'open';
+          this.qr = null;
+          this.qrBase64 = null;
+          console.log('[instance] Conexão estabelecida como', this.creds.me?.id);
+        }
 
-      if (update.connection === 'close') {
-        this.status = 'close';
-      }
+        if (update.connection === 'close') {
+          this.status = 'close';
+          console.log('[instance] Conexão fechada. Tentando reconectar em 3s...');
+          if (this.creds?.me) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = setTimeout(() => this.init().catch(() => {}), 3000);
+          }
+        }
 
-      if (update.connection === 'reconnecting') {
-        this.status = 'connecting';
+        if (update.connection === 'reconnecting') {
+          this.status = 'connecting';
+        }
+      });
+    } catch (err) {
+      console.error('[instance] Falha ao conectar:', err.message);
+      this.status = 'close';
+      if (this.creds?.me) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = setTimeout(() => this.init().catch(() => {}), 3000);
       }
-    });
+    }
 
     return this;
   }
 
   async sendMessage(number, text, options = {}) {
-    if (this.status !== 'open' || !this.client) {
-      throw new Error(`Instância não está conectada. Status atual: ${this.status}`);
+    // Se a conexão estiver caindo ou reconectando, aguarda até 5 segundos
+    if (this.status !== 'open') {
+      console.log(`[instance] Status atual é ${this.status}. Aguardando conexão...`);
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 250));
+        if (this.status === 'open') break;
+      }
     }
+
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância não está conectada ao WhatsApp (Status: ${this.status}). Acesse /instance/qr para verificar a conexão.`);
+    }
+
     const cleanNumber = String(number).trim().replace(/[^0-9]/g, '');
     if (!cleanNumber) {
       throw new Error('Número de telefone inválido.');
@@ -142,6 +166,7 @@ export class WhatsAppInstance {
   }
 
   async logout() {
+    clearTimeout(this.reconnectTimer);
     if (this.client) {
       try { this.client.close(); } catch (e) {}
     }

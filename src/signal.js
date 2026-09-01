@@ -8,6 +8,16 @@ export const generateSignalPubKey = (pubKey) => {
   return buf.length === 33 ? buf : Buffer.concat([KEY_BUNDLE_TYPE, buf]);
 };
 
+export function formatPhoneNumber(input, defaultCountryCode = '55') {
+  let clean = String(input).trim().replace(/[^0-9]/g, '');
+  if (!clean) return clean;
+  // Se tem 10 ou 11 dígitos (formato brasileiro com DDD: 11999998888 ou 99991081780)
+  if (clean.length === 10 || clean.length === 11) {
+    clean = defaultCountryCode + clean;
+  }
+  return clean;
+}
+
 export function jidDecode(jid) {
   if (typeof jid !== 'string' || !jid.includes('@')) return null;
   const idx = jid.lastIndexOf('@');
@@ -176,8 +186,8 @@ export function makeSignalRepository(creds, ev) {
  * Consulta o USync para obter o JID canônico e a lista de dispositivos com seus key-index.
  */
 export async function usyncUser(query, input) {
-  let phone = String(input).trim().replace(/[^0-9]/g, '');
-  if (!phone.startsWith('+')) phone = '+' + phone;
+  const formattedPhone = formatPhoneNumber(input);
+  const phoneWithPlus = '+' + formattedPhone;
 
   try {
     const res = await query({
@@ -200,7 +210,7 @@ export async function usyncUser(query, input) {
               tag: 'list',
               attrs: {},
               content: [
-                { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: phone }] }
+                { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: phoneWithPlus }] }
               ]
             }
           ]
@@ -227,7 +237,6 @@ export async function usyncUser(query, input) {
             const id = +dev.attrs.id;
             const keyIndex = dev.attrs['key-index'];
             if (id === 0) foundZero = true;
-            // Apenas adiciona dispositivos válidos (id 0 ou com key-index)
             if (id === 0 || keyIndex) {
               const jid = id === 0 ? canonicalJid : `${user}:${id}@${server}`;
               devices.push({ id, jid, keyIndex });
@@ -246,7 +255,7 @@ export async function usyncUser(query, input) {
     console.warn('[usync] Falha ao consultar usync:', err.message);
   }
 
-  const rawJid = String(input).includes('@') ? String(input) : `${input.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+  const rawJid = `${formattedPhone}@s.whatsapp.net`;
   return { jid: rawJid, devices: [{ id: 0, jid: rawJid }] };
 }
 
