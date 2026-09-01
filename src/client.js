@@ -190,8 +190,7 @@ export async function connectWA(options = {}) {
         ev.emit('creds.update', newCreds);
         ev.emit('connection.update', { isNewLogin: true, qr: undefined });
         await sock.sendNode(reply);
-        console.log('[PAIR-SUCCESS CONFIRMED] Confirmacao enviada! Reconectando em 1s...');
-        setTimeout(() => reconnect(), 1000);
+        console.log('[PAIR-SUCCESS CONFIRMED] Confirmacao enviada com sucesso!');
         if (pairResolve) pairResolve(currentCreds);
       } catch (e) {
         console.error('[PAIR-SUCCESS ERROR]:', e);

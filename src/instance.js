@@ -126,6 +126,12 @@ export class WhatsAppInstance {
   }
 
   async init() {
+    clearTimeout(this.reconnectTimer);
+    if (this.client) {
+      try { this.client.close(); } catch (e) {}
+      this.client = null;
+    }
+
     if (existsSync(this.sessionFile)) {
       try {
         const raw = await readFile(this.sessionFile, 'utf8');
