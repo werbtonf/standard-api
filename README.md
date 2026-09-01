@@ -15,6 +15,14 @@ O servidor iniciará em `http://localhost:3000`.
 
 ---
 
+## 📖 Documentação Swagger Interativa
+
+Acesse no seu navegador para visualizar e testar todos os endpoints interativamente:
+
+👉 **[http://localhost:3000/docs](http://localhost:3000/docs)**
+
+---
+
 ## 📡 Endpoints da API REST
 
 ### 1. Status da Conexão
