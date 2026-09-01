@@ -37,7 +37,8 @@ await fastify.register(swagger, {
     },
     tags: [
       { name: 'Instance', description: 'Gerenciamento de Múltiplas Instâncias (Criar, Listar, Conectar, QR Code, Deletar)' },
-      { name: 'Messages', description: 'Envio de Mensagens por Instância' }
+      { name: 'Messages', description: 'Envio de Mensagens por Instância' },
+      { name: 'Webhook', description: 'Configuração de Webhooks para Recepção de Eventos em Tempo Real' }
     ]
   }
 });
@@ -76,9 +77,8 @@ fastify.get('/', {
       status: 'GET /instance/status/:instanceName',
       qr: 'GET /instance/qr/:instanceName',
       sendText: 'POST /message/send-text/:instanceName',
-      connect: 'POST /instance/connect/:instanceName',
-      logout: 'POST /instance/logout/:instanceName',
-      deleteInstance: 'DELETE /instance/delete/:instanceName'
+      setWebhook: 'POST /webhook/set/:instanceName',
+      findWebhook: 'GET /webhook/find/:instanceName'
     }
   };
 });
@@ -160,7 +160,7 @@ fastify.get('/instance/list', {
   return manager.listInstances();
 });
 
-// Obter Status de uma Instância (com ou sem param)
+// Obter Status de uma Instância
 fastify.get('/instance/status/:instanceName', {
   schema: {
     tags: ['Instance'],
@@ -496,6 +496,127 @@ fastify.post('/message/send-text', {
   }
 });
 
+// ==========================================
+// 3. ROTAS DE WEBHOOK
+// ==========================================
+
+// Configurar Webhook por Instância
+fastify.post('/webhook/set/:instanceName', {
+  schema: {
+    tags: ['Webhook'],
+    summary: 'Configurar Webhook da Instância',
+    description: 'Configura o endpoint HTTP para receber eventos em tempo real (novas mensagens, atualizações de conexão, recibos de leitura).',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    body: {
+      type: 'object',
+      required: ['url'],
+      properties: {
+        url: {
+          type: 'string',
+          description: 'URL do endpoint HTTP que receberá os POSTs de webhook (ex: https://webhook.site/...)',
+          default: 'https://webhook.site/sua-url-aqui'
+        },
+        enabled: {
+          type: 'boolean',
+          description: 'Habilitar ou desabilitar o disparo de webhooks',
+          default: true
+        },
+        events: {
+          type: 'array',
+          description: 'Lista de eventos a serem enviados',
+          items: { type: 'string' },
+          default: ['messages.upsert', 'connection.update', 'receipts.update', 'presence.update']
+        },
+        headers: {
+          type: 'object',
+          description: 'Headers HTTP customizados opcionais (ex: Authorization)',
+          additionalProperties: true
+        }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          status: { type: 'string' },
+          webhook: {
+            type: 'object',
+            properties: {
+              instanceName: { type: 'string' },
+              url: { type: 'string' },
+              enabled: { type: 'boolean' },
+              events: { type: 'array', items: { type: 'string' } },
+              headers: { type: 'object', additionalProperties: true }
+            }
+          }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const instanceName = request.params.instanceName || 'default';
+  const instance = manager.getInstance(instanceName);
+  const webhook = await instance.setWebhook(request.body);
+  return { status: 'SUCCESS', webhook };
+});
+
+fastify.post('/webhook/set', {
+  schema: {
+    tags: ['Webhook'],
+    summary: 'Configurar Webhook da Instância Padrão'
+  }
+}, async (request) => {
+  const instance = manager.getInstance('default');
+  const webhook = await instance.setWebhook(request.body);
+  return { status: 'SUCCESS', webhook };
+});
+
+// Consultar Webhook por Instância
+fastify.get('/webhook/find/:instanceName', {
+  schema: {
+    tags: ['Webhook'],
+    summary: 'Consultar Webhook da Instância',
+    description: 'Retorna a configuração atual de webhook da instância especificada.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          instanceName: { type: 'string' },
+          url: { type: 'string' },
+          enabled: { type: 'boolean' },
+          events: { type: 'array', items: { type: 'string' } },
+          headers: { type: 'object', additionalProperties: true }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const instanceName = request.params.instanceName || 'default';
+  const instance = manager.getInstance(instanceName);
+  return instance.getWebhook();
+});
+
+fastify.get('/webhook/find', {
+  schema: {
+    tags: ['Webhook'],
+    summary: 'Consultar Webhook da Instância Padrão'
+  }
+}, async () => {
+  const instance = manager.getInstance('default');
+  return instance.getWebhook();
+});
+
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -510,6 +631,7 @@ try {
   console.log(`   - 📖 Swagger Docs:       http://localhost:${PORT}/docs`);
   console.log(`   - 📋 Listar Instâncias:  GET  http://localhost:${PORT}/instance/list`);
   console.log(`   - ➕ Criar Instância:    POST http://localhost:${PORT}/instance/create`);
+  console.log(`   - 🔔 Configurar Webhook: POST http://localhost:${PORT}/webhook/set/:instanceName`);
   console.log(`   - 💬 Enviar Mensagem:    POST http://localhost:${PORT}/message/send-text/:instanceName
 `);
 } catch (err) {

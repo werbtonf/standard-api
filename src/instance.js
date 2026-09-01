@@ -1,6 +1,6 @@
 import { connectWA } from './client.js';
 import { initAuthCreds, signPreKeys, normalizeCreds } from './auth.js';
-import { existsSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
 import { readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import QRCode from 'qrcode';
@@ -11,6 +11,7 @@ export class WhatsAppInstance {
     this.baseDir = options.baseDir || './sessions';
     this.sessionDir = join(this.baseDir, this.name);
     this.sessionFile = join(this.sessionDir, 'session.json');
+    this.webhookFile = join(this.sessionDir, 'webhook.json');
     this.client = null;
     this.creds = null;
     this.status = 'disconnected'; // 'disconnected' | 'connecting' | 'qrcode' | 'open' | 'close'
@@ -21,8 +22,87 @@ export class WhatsAppInstance {
     this.queuedSave = false;
     this.reconnectTimer = null;
 
+    this.webhook = {
+      url: process.env.WEBHOOK_GLOBAL_URL || '',
+      enabled: Boolean(process.env.WEBHOOK_GLOBAL_URL),
+      events: ['messages.upsert', 'connection.update'],
+      headers: {}
+    };
+
     if (!existsSync(this.sessionDir)) {
       mkdirSync(this.sessionDir, { recursive: true });
+    }
+
+    this.loadWebhookSync();
+  }
+
+  loadWebhookSync() {
+    if (existsSync(this.webhookFile)) {
+      try {
+        const raw = JSON.parse(readFileSync(this.webhookFile, 'utf8'));
+        this.webhook = { ...this.webhook, ...raw };
+      } catch (e) {}
+    }
+  }
+
+  async saveWebhook() {
+    try {
+      await writeFile(this.webhookFile, JSON.stringify(this.webhook, null, 2));
+    } catch (e) {
+      console.error(`[${this.name}] Erro ao salvar webhook:`, e.message);
+    }
+  }
+
+  async setWebhook({ url, enabled = true, events, headers = {} }) {
+    this.webhook = {
+      url: String(url || '').trim(),
+      enabled: Boolean(enabled),
+      events: Array.isArray(events) ? events : (this.webhook.events || ['messages.upsert', 'connection.update']),
+      headers: typeof headers === 'object' ? headers : {}
+    };
+    await this.saveWebhook();
+    return this.getWebhook();
+  }
+
+  getWebhook() {
+    return {
+      instanceName: this.name,
+      url: this.webhook.url,
+      enabled: this.webhook.enabled,
+      events: this.webhook.events,
+      headers: this.webhook.headers
+    };
+  }
+
+  async dispatchWebhook(event, data) {
+    if (!this.webhook.enabled || !this.webhook.url) return;
+    if (this.webhook.events && !this.webhook.events.includes(event)) return;
+
+    const payload = {
+      event,
+      instanceName: this.name,
+      data,
+      timestamp: Math.floor(Date.now() / 1000)
+    };
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+
+      await fetch(this.webhook.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'standard-api-webhook/1.0',
+          ...(this.webhook.headers || {})
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+    } catch (err) {
+      // Ignora falha de entrega silenciosamente para não travar a instância
+      // console.warn(`[${this.name}] Webhook dispatch error:`, err.message);
     }
   }
 
@@ -107,7 +187,30 @@ export class WhatsAppInstance {
         if (update.connection === 'reconnecting') {
           this.status = 'connecting';
         }
+
+        this.dispatchWebhook('connection.update', {
+          status: this.status,
+          connection: update.connection,
+          qr: update.qr,
+          me: this.creds?.me || null
+        });
       });
+
+      // Webhook para novas mensagens recebidas
+      this.client.ev.on('messages.upsert', (data) => {
+        this.dispatchWebhook('messages.upsert', data);
+      });
+
+      // Webhook para recibos de entrega/leitura
+      this.client.ev.on('receipts.update', (data) => {
+        this.dispatchWebhook('receipts.update', data);
+      });
+
+      // Webhook para presenças (digitando, online)
+      this.client.ev.on('presence.update', (data) => {
+        this.dispatchWebhook('presence.update', data);
+      });
+
     } catch (err) {
       console.error(`[${this.name}] Falha ao conectar:`, err.message);
       this.status = 'close';
@@ -191,7 +294,6 @@ export class InstanceManager {
       mkdirSync(this.baseDir, { recursive: true });
     }
 
-    // Migração automática de sessão anterior (seja de ./sessions/session.json ou /tmp)
     this.migrateLegacySession();
   }
 
@@ -219,7 +321,6 @@ export class InstanceManager {
     if (!existsSync(this.baseDir)) return;
     const entries = readdirSync(this.baseDir, { withFileTypes: true });
     
-    // Se não existir nenhuma instância, inicializa a instância "default"
     const instanceDirs = entries.filter(e => e.isDirectory()).map(e => e.name);
     if (instanceDirs.length === 0) {
       instanceDirs.push('default');
@@ -256,9 +357,15 @@ export class InstanceManager {
 
   getInstance(name = 'default') {
     const cleanName = String(name || 'default').trim().toLowerCase();
-    const inst = this.instances.get(cleanName);
+    let inst = this.instances.get(cleanName);
     if (!inst) {
-      throw new Error(`Instância "${cleanName}" não encontrada. Crie-a primeiro em POST /instance/create.`);
+      const dir = join(this.baseDir, cleanName);
+      if (existsSync(dir)) {
+        inst = new WhatsAppInstance(cleanName, { baseDir: this.baseDir });
+        this.instances.set(cleanName, inst);
+      } else {
+        throw new Error(`Instância "${cleanName}" não encontrada. Crie-a primeiro em POST /instance/create.`);
+      }
     }
     return inst;
   }

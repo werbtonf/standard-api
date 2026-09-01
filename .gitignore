@@ -4,3 +4,5 @@ node_modules/
 .DS_Store
 *.session.json
 sessions/
+HANDOVER.md
+TODO.md
