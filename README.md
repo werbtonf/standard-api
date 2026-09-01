@@ -4,7 +4,7 @@ API REST Multi-Instâncias e Cliente WhatsApp Web Multi-Device de alta performan
 
 ---
 
-## 🚀 Como Iniciar a API REST (Fastify)
+## Como Iniciar a API REST (Fastify)
 
 Para iniciar o servidor HTTP da API:
 
@@ -15,15 +15,15 @@ O servidor iniciará em `http://localhost:3000`.
 
 ---
 
-## 📖 Documentação Swagger Interativa
+## Documentação Swagger Interativa
 
 Acesse no seu navegador para visualizar e testar todos os endpoints interativamente:
 
-👉 **[http://localhost:3000/docs](http://localhost:3000/docs)**
+**[http://localhost:3000/docs](http://localhost:3000/docs)**
 
 ---
 
-## 📡 Endpoints da API REST
+## Endpoints da API REST
 
 ### 1. Criar Nova Instância
 Cria uma nova instância isolada para conectar outro número de WhatsApp.
@@ -65,7 +65,7 @@ curl -X POST http://localhost:3000/message/send-text/vendas \
   -H "Content-Type: application/json" \
   -d '{
     "number": "5599991081780",
-    "text": "Olá! Mensagem enviada via API REST 🚀"
+    "text": "Olá! Mensagem enviada via API REST"
   }'
 ```
 
@@ -75,7 +75,7 @@ curl -X POST http://localhost:3000/message/send-text/vendas \
 
 Suporta **Imagens**, **Áudios/PTT (Gravação de Voz)**, **Documentos/PDFs**, **Vídeos** e **Figurinhas (Stickers)** via URL pública ou Base64:
 
-#### 📸 Envio de Imagem:
+#### Envio de Imagem:
 ```bash
 curl -X POST http://localhost:3000/message/send-media/default \
   -H "Content-Type: application/json" \
@@ -83,11 +83,11 @@ curl -X POST http://localhost:3000/message/send-media/default \
     "number": "5599991081780",
     "type": "image",
     "media": "https://images.unsplash.com/photo-1579202673506-ca3ce28943ef?w=500",
-    "caption": "Foto incrível!"
+    "caption": "Foto enviada via API"
   }'
 ```
 
-#### 🎙️ Envio de Áudio / Gravação de Voz (PTT):
+#### Envio de Áudio / Gravação de Voz (PTT):
 ```bash
 curl -X POST http://localhost:3000/message/send-media/default \
   -H "Content-Type: application/json" \
@@ -99,7 +99,7 @@ curl -X POST http://localhost:3000/message/send-media/default \
   }'
 ```
 
-#### 📄 Envio de Documento / PDF:
+#### Envio de Documento / PDF:
 ```bash
 curl -X POST http://localhost:3000/message/send-media/default \
   -H "Content-Type: application/json" \
@@ -128,7 +128,7 @@ curl -X POST http://localhost:3000/webhook/set/default \
 
 ---
 
-## 🛠️ Recursos Implementados
+## Recursos Implementados
 
 - **Arquitetura Multi-Instâncias (Multi-Tenant)**: Dezenas de números conectados simultaneamente em pastas isoladas (`./sessions/<instanceName>`).
 - **Envio e Cifragem de Mídias para CDN**: Cifragem AES-256-CBC + HKDF + HMAC com upload seguro para `mms.whatsapp.net`.

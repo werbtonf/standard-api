@@ -850,15 +850,13 @@ const HOST = process.env.HOST || '0.0.0.0';
 try {
   await manager.initAll();
   await fastify.listen({ port: PORT, host: HOST });
-  console.log(`
-🚀 standard-api Multi-Instance REST rodando em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-  console.log(`   - 📖 Swagger Docs:       http://localhost:${PORT}/docs`);
-  console.log(`   - 📋 Listar Instâncias:  GET  http://localhost:${PORT}/instance/list`);
-  console.log(`   - ➕ Criar Instância:    POST http://localhost:${PORT}/instance/create`);
-  console.log(`   - 🔔 Configurar Webhook: POST http://localhost:${PORT}/webhook/set/:instanceName`);
-  console.log(`   - 💬 Enviar Mensagem:    POST http://localhost:${PORT}/message/send-text/:instanceName`);
-  console.log(`   - 🖼️ Enviar Mídia:       POST http://localhost:${PORT}/message/send-media/:instanceName
-`);
+  console.log(`\nstandard-api Multi-Instance REST rodando em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+  console.log(`   - Swagger Docs:       http://localhost:${PORT}/docs`);
+  console.log(`   - Listar Instancias:  GET  http://localhost:${PORT}/instance/list`);
+  console.log(`   - Criar Instancia:    POST http://localhost:${PORT}/instance/create`);
+  console.log(`   - Configurar Webhook: POST http://localhost:${PORT}/webhook/set/:instanceName`);
+  console.log(`   - Enviar Mensagem:    POST http://localhost:${PORT}/message/send-text/:instanceName`);
+  console.log(`   - Enviar Midia:       POST http://localhost:${PORT}/message/send-media/:instanceName\n`);
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);

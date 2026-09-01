@@ -172,12 +172,12 @@ export class WhatsAppInstance {
           this.status = 'open';
           this.qr = null;
           this.qrBase64 = null;
-          console.log(`[${this.name}] 🟢 Conexão estabelecida como`, this.creds.me?.id);
+          console.log(`[${this.name}] Conexao estabelecida como`, this.creds.me?.id);
         }
 
         if (update.connection === 'close') {
           this.status = 'close';
-          console.log(`[${this.name}] 🔴 Conexão fechada. Tentando reconectar em 3s...`);
+          console.log(`[${this.name}] Conexao fechada. Tentando reconectar em 3s...`);
           if (this.creds?.me) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = setTimeout(() => this.init().catch(() => {}), 3000);

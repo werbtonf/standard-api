@@ -39,7 +39,7 @@ client.ev.on('connection.update', async (update) => {
   }
 
   if (update.connection === 'open') {
-    console.log('🟢 standard-api online e ouvindo mensagens!');
+    console.log('standard-api online e ouvindo mensagens!');
   }
 });
 
@@ -48,8 +48,7 @@ client.ev.on('messages.upsert', ({ messages, type }) => {
   for (const m of messages) {
     const sender = m.key.remoteJid;
     const text = m.message?.conversation || m.message?.extendedTextMessage?.text || '(mensagem não-texto ou vazia)';
-    console.log(`
-📩 [Mensagem de ${sender}]: ${text}`);
+    console.log(`\n[Mensagem de ${sender}]: ${text}`);
     if (m.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
       console.log('   ↳ Resposta a:', m.message.extendedTextMessage.contextInfo.quotedMessage);
     }

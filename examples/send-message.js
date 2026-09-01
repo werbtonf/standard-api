@@ -5,7 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 const SESSION_FILE = '/tmp/wa-api-session.json';
 
 const targetNumber = process.argv[2];
-const textMessage = process.argv[3] || 'Olá! Mensagem enviada via standard-api (Noise + Signal E2EE) 🚀';
+const textMessage = process.argv[3] || 'Olá! Mensagem enviada via standard-api (Noise + Signal E2EE)';
 
 if (!targetNumber) {
   console.log('Uso: node examples/send-message.js <numero-com-ddd-e-ddi> [mensagem]');

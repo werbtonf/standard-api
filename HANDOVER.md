@@ -1,6 +1,6 @@
 # stdwpp — Handover / Contexto do Projeto
 
-> **Status:** 🎉 **PAREAMENTO E AUTENTICAÇÃO TOTALMENTE FUNCIONAIS E VALIDADOS!**
+> **Status:** **PAREAMENTO E AUTENTICAÇÃO TOTALMENTE FUNCIONAIS E VALIDADOS!**
 > O fluxo de pareamento por QR Code, validação de assinaturas de dispositivo/conta (ADV/Signal), armazenamento de sessão e reconexão autenticada (`<success>`) estão **100% operacionais** contra os servidores oficiais do WhatsApp.
 
 ---
