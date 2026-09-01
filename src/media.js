@@ -19,6 +19,8 @@ const MEDIA_PATH_MAP = {
   sticker: '/mms/image'
 };
 
+const S_WHATSAPP_NET = '@s.whatsapp.net';
+
 export const getMediaKeys = (mediaKey, mediaType) => {
   const hkdfInfo = MEDIA_HKDF_KEY_MAPPING[mediaType] || 'Image';
   const expanded = hkdf(mediaKey, 112, { info: Buffer.from(`WhatsApp ${hkdfInfo} Keys`, 'utf8') });
@@ -81,7 +83,7 @@ export async function getMediaConn(query, forceRefresh = false) {
 
   const res = await query({
     tag: 'iq',
-    attrs: { to: 's.whatsapp.net', type: 'set', xmlns: 'w:m' },
+    attrs: { to: S_WHATSAPP_NET, type: 'set', xmlns: 'w:m' },
     content: [{ tag: 'media_conn', attrs: {} }]
   }, 10000);
 
