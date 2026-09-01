@@ -11,7 +11,6 @@ export const generateSignalPubKey = (pubKey) => {
 export function formatPhoneNumber(input, defaultCountryCode = '55') {
   let clean = String(input).trim().replace(/[^0-9]/g, '');
   if (!clean) return clean;
-  // Se tem 10 ou 11 dígitos (formato brasileiro com DDD: 11999998888 ou 99991081780)
   if (clean.length === 10 || clean.length === 11) {
     clean = defaultCountryCode + clean;
   }
@@ -48,6 +47,9 @@ export function jidToSignalProtocolAddress(jid) {
   const user = decoded.domainType > 0 ? `${decoded.user}_${decoded.domainType}` : decoded.user;
   return new libsignal.ProtocolAddress(user, decoded.device || 0);
 }
+
+/** Cache em memória para resolução USync (evita rate-limit do WhatsApp) */
+const usyncCache = new Map();
 
 /**
  * Cria o repositório Signal com persistência nas credenciais do cliente.
@@ -183,10 +185,17 @@ export function makeSignalRepository(creds, ev) {
 }
 
 /**
- * Consulta o USync para obter o JID canônico e a lista de dispositivos com seus key-index.
+ * Consulta o USync com cache de 10 minutos para obter o JID canônico e dispositivos.
  */
 export async function usyncUser(query, input) {
   const formattedPhone = formatPhoneNumber(input);
+  const cacheKey = formattedPhone;
+
+  const cached = usyncCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < 10 * 60 * 1000) {
+    return cached.data;
+  }
+
   const phoneWithPlus = '+' + formattedPhone;
 
   try {
@@ -196,7 +205,7 @@ export async function usyncUser(query, input) {
       content: [
         {
           tag: 'usync',
-          attrs: { sid: Date.now().toString(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
+          attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
           content: [
             {
               tag: 'query',
@@ -216,7 +225,7 @@ export async function usyncUser(query, input) {
           ]
         }
       ]
-    }, 8000);
+    }, 5000);
 
     const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
     const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
@@ -249,14 +258,33 @@ export async function usyncUser(query, input) {
         devices.unshift({ id: 0, jid: canonicalJid });
       }
 
-      return { jid: canonicalJid, devices };
+      const result = { jid: canonicalJid, devices };
+      usyncCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      return result;
     }
   } catch (err) {
     console.warn('[usync] Falha ao consultar usync:', err.message);
   }
 
-  const rawJid = `${formattedPhone}@s.whatsapp.net`;
-  return { jid: rawJid, devices: [{ id: 0, jid: rawJid }] };
+  // Se o número tem 12 ou 13 dígitos no Brasil (ex: 5599991081780) e o USync falhou:
+  // no Brasil (DDD 99), se 13 dígitos (55 + 99 + 9 + 8 dígitos), o formato sem o 9º dígito é 559991081780
+  let fallbackJid = `${formattedPhone}@s.whatsapp.net`;
+  if (formattedPhone.startsWith('55') && formattedPhone.length === 13) {
+    const ddd = formattedPhone.slice(2, 4);
+    const ninthDigit = formattedPhone[4];
+    if (ninthDigit === '9') {
+      const eightDigitJid = `55${ddd}${formattedPhone.slice(5)}@s.whatsapp.net`;
+      fallbackJid = eightDigitJid;
+    }
+  }
+
+  const result = { jid: fallbackJid, devices: [{ id: 0, jid: fallbackJid }] };
+  return result;
+}
+
+let usyncSidCounter = 0;
+function generateUSyncSid() {
+  return `${Date.now()}_${++usyncSidCounter}`;
 }
 
 /**
@@ -309,7 +337,7 @@ export async function fetchPreKeys(query, devicesList, repository) {
   };
 
   try {
-    const result = await query(iq, 8000);
+    const result = await query(iq, 5000);
     const listNode = (result.content || []).find(c => c && c.tag === 'list');
     if (!listNode) return;
 
