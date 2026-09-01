@@ -1,6 +1,6 @@
 # standard-api
 
-API REST Multi-Instâncias e Cliente WhatsApp Web Multi-Device de alta performance implementado do zero em Node.js (protocolo binário WABinary + Noise XX + Signal Protocol E2EE), sem dependências de navegadores (sem Puppeteer/Chromium).
+API REST Multi-Instâncias e Cliente WhatsApp Web Multi-Device de alta performance implementado do zero em Node.js (protocolo binário WABinary + Noise XX + Signal Protocol E2EE + Media Cipher), sem dependências de navegadores (sem Puppeteer/Chromium).
 
 ---
 
@@ -23,38 +23,21 @@ Acesse no seu navegador para visualizar e testar todos os endpoints interativame
 
 ---
 
-## 📡 Endpoints da API REST (Multi-Instâncias)
+## 📡 Endpoints da API REST
 
 ### 1. Criar Nova Instância
 Cria uma nova instância isolada para conectar outro número de WhatsApp.
 ```bash
 curl -X POST http://localhost:3000/instance/create \
   -H "Content-Type: application/json" \
-  -d '{ "instanceName": "atendimento-01" }'
+  -d '{ "instanceName": "vendas" }'
 ```
 
 ---
 
 ### 2. Listar Todas as Instâncias
-Retorna todas as instâncias cadastradas, seus status e números conectados.
 ```bash
 curl -X GET http://localhost:3000/instance/list
-```
-**Resposta de Exemplo:**
-```json
-[
-  {
-    "instanceName": "default",
-    "status": "open",
-    "connected": true,
-    "me": {
-      "id": "556392757009@s.whatsapp.net:52",
-      "lid": "225804415979533@lid:52"
-    },
-    "uptime": 120,
-    "timestamp": "2026-09-01T22:43:07.034Z"
-  }
-]
 ```
 
 ---
@@ -62,12 +45,12 @@ curl -X GET http://localhost:3000/instance/list
 ### 3. Obter QR Code de uma Instância
 Retorna o QR Code ativo para escanear no WhatsApp.
 ```bash
-curl -X GET http://localhost:3000/instance/qr/atendimento-01
+curl -X GET http://localhost:3000/instance/qr/vendas
 ```
 **Resposta:**
 ```json
 {
-  "instanceName": "atendimento-01",
+  "instanceName": "vendas",
   "status": "qrcode",
   "qr": "2@b3q5...",
   "qrBase64": "data:image/png;base64,iVBORw0KGgoAAA..."
@@ -76,46 +59,79 @@ curl -X GET http://localhost:3000/instance/qr/atendimento-01
 
 ---
 
-### 4. Status de uma Instância
+### 4. Enviar Mensagem de Texto
 ```bash
-curl -X GET http://localhost:3000/instance/status/atendimento-01
-```
-
----
-
-### 5. Enviar Mensagem de Texto por Instância
-Envia uma mensagem criptografada ponta a ponta (E2EE Signal) a partir da instância especificada.
-```bash
-curl -X POST http://localhost:3000/message/send-text/atendimento-01 \
+curl -X POST http://localhost:3000/message/send-text/vendas \
   -H "Content-Type: application/json" \
   -d '{
     "number": "5599991081780",
-    "text": "Olá! Mensagem enviada pelo atendimento 🚀"
+    "text": "Olá! Mensagem enviada via API REST 🚀"
   }'
-```
-**Resposta:**
-```json
-{
-  "status": "SUCCESS",
-  "instanceName": "atendimento-01",
-  "messageId": "1788302602737-3",
-  "to": "559991081780@s.whatsapp.net",
-  "timestamp": 1788302602
-}
 ```
 
 ---
 
-### 6. Gerenciamento de Instâncias
-* **Conectar/Reconectar:** `POST http://localhost:3000/instance/connect/:instanceName`
-* **Logout (desconectar):** `POST http://localhost:3000/instance/logout/:instanceName`
-* **Deletar Instância:** `DELETE http://localhost:3000/instance/delete/:instanceName`
+### 5. Enviar Mídias (`POST /message/send-media/:instanceName`)
+
+Suporta **Imagens**, **Áudios/PTT (Gravação de Voz)**, **Documentos/PDFs**, **Vídeos** e **Figurinhas (Stickers)** via URL pública ou Base64:
+
+#### 📸 Envio de Imagem:
+```bash
+curl -X POST http://localhost:3000/message/send-media/default \
+  -H "Content-Type: application/json" \
+  -d '{
+    "number": "5599991081780",
+    "type": "image",
+    "media": "https://images.unsplash.com/photo-1579202673506-ca3ce28943ef?w=500",
+    "caption": "Foto incrível!"
+  }'
+```
+
+#### 🎙️ Envio de Áudio / Gravação de Voz (PTT):
+```bash
+curl -X POST http://localhost:3000/message/send-media/default \
+  -H "Content-Type: application/json" \
+  -d '{
+    "number": "5599991081780",
+    "type": "audio",
+    "media": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+    "ptt": true
+  }'
+```
+
+#### 📄 Envio de Documento / PDF:
+```bash
+curl -X POST http://localhost:3000/message/send-media/default \
+  -H "Content-Type: application/json" \
+  -d '{
+    "number": "5599991081780",
+    "type": "document",
+    "media": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+    "fileName": "relatorio-financeiro.pdf"
+  }'
+```
+
+---
+
+### 6. Configuração de Webhooks em Tempo Real
+Receba eventos de novas mensagens recebidas (`messages.upsert`), status da conexão (`connection.update`) e recibos de leitura (`receipts.update`):
+```bash
+curl -X POST http://localhost:3000/webhook/set/default \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://meu-endpoint.com/webhook",
+    "enabled": true,
+    "events": ["messages.upsert", "connection.update"],
+    "headers": { "Authorization": "Bearer token-secreto" }
+  }'
+```
 
 ---
 
 ## 🛠️ Recursos Implementados
 
-- **Arquitetura Multi-Instâncias (Multi-Tenant)**: Gerencie dezenas de números conectados simultaneamente em pastas isoladas (`./sessions/<instanceName>`).
+- **Arquitetura Multi-Instâncias (Multi-Tenant)**: Dezenas de números conectados simultaneamente em pastas isoladas (`./sessions/<instanceName>`).
+- **Envio e Cifragem de Mídias para CDN**: Cifragem AES-256-CBC + HKDF + HMAC com upload seguro para `mms.whatsapp.net`.
 - **Criptografia Noise XX**: Handshake direto com os servidores do WhatsApp via WebSocket.
 - **Signal Protocol E2EE (Double Ratchet)**: Troca de pré-chaves, padding PKCS7 aleatório e cifragem multi-device.
 - **USync Resolver + Cache**: Resolução inteligente de números canônicos (com ou sem 9º dígito).

@@ -45,6 +45,18 @@ export const aesDecryptGCM = (ciphertext, key, iv, aad) => {
   return Buffer.concat([decipher.update(data), decipher.final()]);
 };
 
+// --- AES-256-CBC (WhatsApp Media Cipher) ---
+
+export const aesEncryptCBC = (plaintext, key, iv) => {
+  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+  return Buffer.concat([cipher.update(plaintext), cipher.final()]);
+};
+
+export const aesDecryptCBC = (ciphertext, key, iv) => {
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+};
+
 // --- X25519 (Curve25519) ---
 // Usa o key exchange "x25519" nativo do Node (crypto.diffieHellman)
 // que aceita chaves privadas X25519 exportadas no formato PKCS8.

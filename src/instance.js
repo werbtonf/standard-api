@@ -243,6 +243,26 @@ export class WhatsAppInstance {
     return await this.client.sendMessage(cleanNumber, { text }, options);
   }
 
+  async sendMedia(number, mediaOptions, options = {}) {
+    if (this.status !== 'open') {
+      console.log(`[${this.name}] Status atual é ${this.status}. Aguardando conexão...`);
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 250));
+        if (this.status === 'open') break;
+      }
+    }
+
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp (Status: ${this.status}). Acesse /instance/qr/${this.name} para conectar.`);
+    }
+
+    const cleanNumber = String(number).trim().replace(/[^0-9]/g, '');
+    if (!cleanNumber) {
+      throw new Error('Número de telefone inválido.');
+    }
+    return await this.client.sendMedia(cleanNumber, mediaOptions, options);
+  }
+
   getStatus() {
     return {
       instanceName: this.name,

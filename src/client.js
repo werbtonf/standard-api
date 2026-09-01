@@ -8,6 +8,7 @@ import { signPreKeys, normalizeCreds, buildRegistrationPayload, buildLoginPayloa
 import { configureSuccessfulPairing } from './pairing.js';
 import { makeSignalRepository, fetchPreKeys, usyncUser, jidDecode } from './signal.js';
 import { encodeMessage, decodeMessage } from './messages.js';
+import { prepareMediaMessage } from './media.js';
 import {
   WA_WS_URL,
   CONNECT_TIMEOUT_MS,
@@ -484,6 +485,11 @@ export async function connectWA(options = {}) {
     };
   };
 
+  const sendMedia = async (jid, mediaOptions, options = {}) => {
+    const mediaContent = await prepareMediaMessage(conn.query, mediaOptions);
+    return await sendMessage(jid, mediaContent, options);
+  };
+
   const sendReceipt = async (jid, participant, messageIds, type = 'read') => {
     const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
     const targetJid = normalizeJid(jid);
@@ -507,6 +513,7 @@ export async function connectWA(options = {}) {
     query: (node, timeout) => conn.query(node, timeout),
     sendNode: (node) => conn.sock.sendNode(node),
     sendMessage,
+    sendMedia,
     sendReceipt,
     signal: signalRepo,
     close: () => conn.close()
