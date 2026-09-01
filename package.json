@@ -1,0 +1,17 @@
+{
+  "name": "standard-api",
+  "version": "0.1.0",
+  "description": "Cliente não-oficial do WhatsApp Web implementado do zero (protocolo binário + Noise)",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "connect": "node examples/connect.js"
+  },
+  "dependencies": {
+    "curve25519-js": "^0.0.4",
+    "jimp": "^1.6.1",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0"
+  }
+}
