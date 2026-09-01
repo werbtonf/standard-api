@@ -355,8 +355,8 @@ export function encodeBinaryNode(node, opts = {}) {
   return Buffer.from(buffer);
 }
 
-/** Decodifica um JID "user@server[:device]" */
-function jidDecode(jid) {
+/** Decodifica um JID "user@server[:device]" ou "@server" */
+export function jidDecode(jid) {
   if (typeof jid !== 'string' || !jid.includes('@')) return null;
   const idx = jid.lastIndexOf('@');
   const user = jid.slice(0, idx);
@@ -367,8 +367,8 @@ function jidDecode(jid) {
     device = +server.slice(colon + 1);
     server = server.slice(0, colon);
   }
-  if (user && server) {
-    return { user, device, server };
+  if (server) {
+    return { user: user || '', device, server };
   }
   return null;
 }
