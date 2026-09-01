@@ -201,7 +201,7 @@ export async function usyncUser(query, input) {
   try {
     const res = await query({
       tag: 'iq',
-      attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
+      attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'usync' },
       content: [
         {
           tag: 'usync',
@@ -305,7 +305,7 @@ export async function fetchPreKeys(query, devicesList, repository) {
 
   if (itemsToFetch.length === 0) return;
 
-  const S_WHATSAPP_NET = '@s.whatsapp.net';
+  const S_WHATSAPP_NET = 's.whatsapp.net';
   const iq = {
     tag: 'iq',
     attrs: {

@@ -82,7 +82,7 @@ export async function configureSuccessfulPairing(stanza, { advSecretKey, signedI
 
   const reply = {
     tag: 'iq',
-    attrs: { to: '@s.whatsapp.net', type: 'result', id: msgId },
+    attrs: { to: 's.whatsapp.net', type: 'result', id: msgId },
     content: [
       {
         tag: 'pair-device-sign',

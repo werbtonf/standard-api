@@ -21,7 +21,7 @@ const MEDIA_PATH_MAP = {
   sticker: '/mms/image'
 };
 
-const S_WHATSAPP_NET = '@s.whatsapp.net';
+const S_WHATSAPP_NET = 's.whatsapp.net';
 
 export const getMediaKeys = (mediaKey, mediaType) => {
   const hkdfInfo = MEDIA_HKDF_KEY_MAPPING[mediaType] || 'Image';

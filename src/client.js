@@ -15,7 +15,7 @@ import {
   KEEP_ALIVE_INTERVAL_MS
 } from './constants.js';
 
-const S_WHATSAPP_NET = '@s.whatsapp.net';
+const S_WHATSAPP_NET = 's.whatsapp.net';
 const COMPANION_REG_REFRESH_CHILDREN = ['companion_reg_refresh', 'pair-device-rotate-qr'];
 
 let messageIdCounter = 0;
