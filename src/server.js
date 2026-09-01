@@ -15,6 +15,11 @@ const fastify = Fastify({
         ignore: 'pid,hostname'
       }
     }
+  },
+  ajv: {
+    customOptions: {
+      strict: false
+    }
   }
 });
 
@@ -234,19 +239,15 @@ fastify.post('/message/send-text', {
     description: 'Envia uma mensagem de texto cifrada com Signal Protocol E2EE para o número especificado.',
     body: {
       type: 'object',
-      required: ['number'],
+      required: ['number', 'text'],
       properties: {
         number: {
           type: 'string',
           description: 'Número do destinatário com DDD (com ou sem DDI 55). Ex: "99991081780" ou "559991081780"'
         },
-        message: {
-          type: 'string',
-          description: 'Texto da mensagem a ser enviada'
-        },
         text: {
           type: 'string',
-          description: 'Campo alternativo para message'
+          description: 'Texto da mensagem a ser enviada'
         }
       }
     },
@@ -276,12 +277,12 @@ fastify.post('/message/send-text', {
     }
   }
 }, async (request, reply) => {
-  const { number, message, text } = request.body;
-  const msgContent = message || text;
+  const { number, text, message } = request.body;
+  const msgContent = text || message;
 
   if (!msgContent || typeof msgContent !== 'string' || !msgContent.trim()) {
     reply.status(400);
-    return { error: 'O campo "message" ou "text" é obrigatório e não pode ser vazio.' };
+    return { error: 'O campo "text" é obrigatório e não pode ser vazio.' };
   }
 
   try {
