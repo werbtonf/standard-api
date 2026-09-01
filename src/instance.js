@@ -182,6 +182,12 @@ export class WhatsAppInstance {
         }
 
         if (update.connection === 'close') {
+          if (update.isLoggedOut) {
+            console.log(`[${this.name}] Sessao desconectada/invalidada pelo WhatsApp. Gerando novo par de chaves e QR Code...`);
+            this.logout().then(() => this.init()).catch(() => {});
+            return;
+          }
+
           this.status = 'close';
           console.log(`[${this.name}] Conexao fechada. Tentando reconectar em 3s...`);
           if (this.creds?.me) {

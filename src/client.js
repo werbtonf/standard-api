@@ -218,10 +218,23 @@ export async function connectWA(options = {}) {
           startKeepAlive();
           break;
         case 'failure':
-          ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: new Error('auth failure: ' + (node.attrs.reason || 'unknown')) } });
+          const failReason = node.attrs.reason || 'unknown';
+          const isFailLoggedOut = ['401', '403', '405', 'logged_out'].includes(String(failReason));
+          ev.emit('connection.update', {
+            connection: 'close',
+            isLoggedOut: isFailLoggedOut,
+            lastDisconnect: { error: new Error('auth failure: ' + failReason) }
+          });
           break;
         case 'stream:error':
-          ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: new Error('stream error: ' + JSON.stringify(node)) } });
+          const errCode = String(node.attrs.code || '');
+          const isStreamLoggedOut = ['401', '403', '405'].includes(errCode) ||
+            (node.content || []).some(c => c && (c.tag === 'conflict' || c.tag === 'logged_out'));
+          ev.emit('connection.update', {
+            connection: 'close',
+            isLoggedOut: isStreamLoggedOut,
+            lastDisconnect: { error: new Error('stream error: ' + JSON.stringify(node)) }
+          });
           break;
         case 'ib':
           ev.emit('ib', node);
@@ -514,9 +527,10 @@ export async function connectWA(options = {}) {
 
   const logout = async () => {
     const jid = currentCreds?.me?.id;
-    if (jid && conn?.sock) {
+    if (jid && conn?.query) {
       try {
-        await conn.sock.sendNode({
+        console.log('[logout] Solicitando desvinculacao da conta ao WhatsApp:', jid);
+        await conn.query({
           tag: 'iq',
           attrs: {
             to: S_WHATSAPP_NET,
@@ -533,7 +547,8 @@ export async function connectWA(options = {}) {
               }
             }
           ]
-        });
+        }, 5000);
+        console.log('[logout] Desvinculacao confirmada pelo servidor do WhatsApp.');
       } catch (e) {
         console.warn('[logout error]', e.message);
       }
