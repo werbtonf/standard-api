@@ -114,13 +114,7 @@ fastify.get('/instance/qr', {
   schema: {
     tags: ['Instance'],
     summary: 'Obter QR Code',
-    description: 'Retorna o QR Code em formato JSON (base64) ou página HTML (adicione ?format=html para escanear no navegador).',
-    querystring: {
-      type: 'object',
-      properties: {
-        format: { type: 'string', enum: ['json', 'html'], default: 'json' }
-      }
-    },
+    description: 'Retorna o QR Code em formato JSON contendo o código raw e a imagem em base64.',
     response: {
       200: {
         type: 'object',
@@ -132,58 +126,8 @@ fastify.get('/instance/qr', {
       }
     }
   }
-}, async (request, reply) => {
-  const data = instance.getQR();
-  const format = request.query.format;
-
-  if (format === 'html') {
-    reply.type('text/html');
-    if (data.status === 'open') {
-      return `
-        <!DOCTYPE html>
-        <html>
-        <head><title>standard-api - Conectado</title><meta charset="utf-8"></head>
-        <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #0b141a; color: white;">
-          <h1 style="color: #00a884;">🟢 WhatsApp Conectado!</h1>
-          <p>Número: <b>${instance.creds?.me?.id || 'Autenticado'}</b></p>
-          <p><a href="/docs" style="color: #53bdeb;">Acessar Documentação Swagger (/docs)</a></p>
-        </body>
-        </html>
-      `;
-    }
-    if (!data.qrBase64) {
-      return `
-        <!DOCTYPE html>
-        <html>
-        <head><title>standard-api - QR Code</title><meta charset="utf-8"><meta http-equiv="refresh" content="2"></head>
-        <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #0b141a; color: white;">
-          <h2>Aguardando geração do QR Code...</h2>
-          <p>Atualizando a cada 2 segundos...</p>
-        </body>
-        </html>
-      `;
-    }
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>standard-api - Escanear QR Code</title>
-        <meta charset="utf-8">
-        <meta http-equiv="refresh" content="15">
-      </head>
-      <body style="font-family: sans-serif; text-align: center; padding-top: 40px; background: #0b141a; color: white;">
-        <h1 style="color: #00a884;">standard-api</h1>
-        <p>Abra o WhatsApp no seu celular &gt; Aparelhos conectados &gt; Conectar aparelho</p>
-        <div style="background: white; display: inline-block; padding: 15px; border-radius: 12px; margin-top: 10px;">
-          <img src="${data.qrBase64}" style="display: block; width: 320px; height: 320px;" alt="QR Code" />
-        </div>
-        <p style="color: #8696a0; font-size: 14px; margin-top: 20px;">O QR Code atualiza automaticamente a cada 15 segundos.</p>
-      </body>
-      </html>
-    `;
-  }
-
-  return data;
+}, async () => {
+  return instance.getQR();
 });
 
 // 3. Conectar / Iniciar
@@ -312,7 +256,7 @@ try {
 🚀 standard-api REST rodando em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   console.log(`   - 📖 Swagger Docs:  http://localhost:${PORT}/docs`);
   console.log(`   - 🔍 Status:        GET  http://localhost:${PORT}/instance/status`);
-  console.log(`   - 📱 QR Code HTML:  GET  http://localhost:${PORT}/instance/qr?format=html`);
+  console.log(`   - 📱 QR Code:       GET  http://localhost:${PORT}/instance/qr`);
   console.log(`   - 💬 Envio Texto:   POST http://localhost:${PORT}/message/send-text
 `);
 } catch (err) {

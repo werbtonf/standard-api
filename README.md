@@ -47,11 +47,17 @@ curl -X GET http://localhost:3000/instance/status
 ---
 
 ### 2. QR Code para Conectar Aparelho
-Retorna o QR Code em formato JSON (base64) ou como página HTML para escanear no navegador.
-* **No Navegador (Auto-refresh):** `http://localhost:3000/instance/qr?format=html`
-* **JSON:**
+Retorna o QR Code em formato JSON contendo a string crua e a imagem codificada em base64.
 ```bash
 curl -X GET http://localhost:3000/instance/qr
+```
+**Resposta de Exemplo:**
+```json
+{
+  "status": "qrcode",
+  "qr": "2@m6...==,j3b...,4P7...",
+  "qrBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+}
 ```
 
 ---
