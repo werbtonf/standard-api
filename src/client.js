@@ -393,21 +393,24 @@ export async function connectWA(options = {}) {
   const sendMessage = async (jid, content, options = {}) => {
     const { jid: canonicalJid, devices } = await usyncUser(conn.query, jid);
     const messageBytes = encodeMessage(content);
-    const { user, server } = jidDecode(canonicalJid) || { user: canonicalJid.split('@')[0], server: 's.whatsapp.net' };
 
-    const targetDeviceJids = devices.map(devId => devId === 0 ? canonicalJid : `${user}:${devId}@${server}`);
-
-    // Busca pré-chaves de todos os dispositivos em lote
-    await fetchPreKeys(conn.query, targetDeviceJids, signalRepo);
+    // Busca pré-chaves em lote para todos os dispositivos usando key-index quando necessário
+    await fetchPreKeys(conn.query, devices, signalRepo);
 
     const participantNodes = [];
     let shouldIncludeDeviceIdentity = false;
 
-    for (const deviceJid of targetDeviceJids) {
+    for (const dev of devices) {
+      const deviceJid = dev.jid;
       const hasSess = await signalRepo.hasSession(deviceJid);
       if (!hasSess) {
-        // Se for dispositivo secundário sem sessão, ignora e envia para o primário
-        if (deviceJid !== canonicalJid) continue;
+        if (dev.id === 0) {
+          try {
+            await fetchPreKeys(conn.query, [dev], signalRepo);
+          } catch (e) {}
+        } else {
+          continue;
+        }
       }
 
       try {

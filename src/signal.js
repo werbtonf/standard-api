@@ -173,7 +173,7 @@ export function makeSignalRepository(creds, ev) {
 }
 
 /**
- * Consulta o USync para obter o JID canônico e a lista de dispositivos ativos.
+ * Consulta o USync para obter o JID canônico e a lista de dispositivos com seus key-index.
  */
 export async function usyncUser(query, input) {
   let phone = String(input).trim().replace(/[^0-9]/g, '');
@@ -214,17 +214,32 @@ export async function usyncUser(query, input) {
 
     if (userNode && userNode.attrs && userNode.attrs.jid) {
       const canonicalJid = userNode.attrs.jid;
+      const { user, server } = jidDecode(canonicalJid) || { user: canonicalJid.split('@')[0], server: 's.whatsapp.net' };
       const devicesNode = (userNode.content || []).find(c => c && c.tag === 'devices');
       const deviceListNode = devicesNode ? (devicesNode.content || []).find(c => c && c.tag === 'device-list') : null;
+      
       const devices = [];
+      let foundZero = false;
+
       if (deviceListNode && Array.isArray(deviceListNode.content)) {
         for (const dev of deviceListNode.content) {
           if (dev && dev.tag === 'device' && dev.attrs && dev.attrs.id !== undefined) {
-            devices.push(+dev.attrs.id);
+            const id = +dev.attrs.id;
+            const keyIndex = dev.attrs['key-index'];
+            if (id === 0) foundZero = true;
+            // Apenas adiciona dispositivos válidos (id 0 ou com key-index)
+            if (id === 0 || keyIndex) {
+              const jid = id === 0 ? canonicalJid : `${user}:${id}@${server}`;
+              devices.push({ id, jid, keyIndex });
+            }
           }
         }
       }
-      if (!devices.includes(0)) devices.push(0);
+
+      if (!foundZero) {
+        devices.unshift({ id: 0, jid: canonicalJid });
+      }
+
       return { jid: canonicalJid, devices };
     }
   } catch (err) {
@@ -232,24 +247,26 @@ export async function usyncUser(query, input) {
   }
 
   const rawJid = String(input).includes('@') ? String(input) : `${input.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
-  return { jid: rawJid, devices: [0] };
+  return { jid: rawJid, devices: [{ id: 0, jid: rawJid }] };
 }
 
 /**
  * Busca pré-chaves públicas dos destinatários no servidor do WhatsApp em um único IQ em lote.
  */
-export async function fetchPreKeys(query, jids, repository) {
-  const jidList = Array.isArray(jids) ? jids : [jids];
-  const jidsToFetch = [];
+export async function fetchPreKeys(query, devicesList, repository) {
+  const list = Array.isArray(devicesList) ? devicesList : [devicesList];
+  const itemsToFetch = [];
 
-  for (const jid of jidList) {
+  for (const item of list) {
+    const jid = typeof item === 'string' ? item : item.jid;
+    const keyIndex = typeof item === 'object' ? item.keyIndex : undefined;
     const hasSess = await repository.hasSession(jid);
     if (!hasSess) {
-      jidsToFetch.push(jid);
+      itemsToFetch.push({ jid, keyIndex });
     }
   }
 
-  if (jidsToFetch.length === 0) return;
+  if (itemsToFetch.length === 0) return;
 
   const S_WHATSAPP_NET = 's.whatsapp.net';
   const iq = {
@@ -263,7 +280,11 @@ export async function fetchPreKeys(query, jids, repository) {
       {
         tag: 'key',
         attrs: {},
-        content: jidsToFetch.map(jid => ({ tag: 'user', attrs: { jid }, content: undefined }))
+        content: itemsToFetch.map(({ jid, keyIndex }) => {
+          const node = { tag: 'user', attrs: { jid }, content: undefined };
+          if (keyIndex) node.attrs['key-index'] = String(keyIndex);
+          return node;
+        })
       }
     ]
   };
