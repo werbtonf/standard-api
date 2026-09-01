@@ -55,7 +55,12 @@ examples/
    - Credenciais salvas em JSON e normalizadas corretamente via `normalizeCreds`.
    - Reconexão enviando `buildLoginPayload` com `passive: true` e `pull: true`.
    - Servidor responde com nó `<success>` e emite o evento `connection.update: { connection: "open" }`.
-7. **Keepalive**: `<iq type="get" xmlns="w:p"><ping/></iq>` + pings em nível de WebSocket para estabilidade permanente da conexão.
+7. **Criptografia Signal E2EE (Envio e Recebimento)**:
+   - Gerenciamento de sessões Double Ratchet via `libsignal`.
+   - Busca automática de pré-chaves (`<iq type="get" xmlns="encrypt"><key><user jid="..."/></key></iq>`).
+   - Cifragem (`<enc v="2" type="msg/pkmsg">`) e envio de mensagens via `client.sendMessage(jid, { text })`.
+   - Decifragem de mensagens recebidas, dispatch no evento `messages.upsert` e envio automático de recibos `<receipt>`.
+8. **Keepalive**: `<iq type="get" xmlns="w:p"><ping/></iq>` + pings em nível de WebSocket para estabilidade permanente da conexão.
 
 ---
 
