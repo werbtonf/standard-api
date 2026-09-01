@@ -6,6 +6,8 @@ import { encodeBinaryNode, decodeBinaryNode } from './wabinary.js';
 import { encodeHandshakeMessage, decodeHandshakeMessage } from './proto.js';
 import { signPreKeys, normalizeCreds, buildRegistrationPayload, buildLoginPayload, buildPairingQRData } from './auth.js';
 import { configureSuccessfulPairing } from './pairing.js';
+import { makeSignalRepository, fetchPreKeys } from './signal.js';
+import { encodeMessage, decodeMessage } from './messages.js';
 import {
   WA_WS_URL,
   CONNECT_TIMEOUT_MS,
@@ -36,6 +38,12 @@ export function buildAckStanza(node, errorCode, meId) {
   return stanza;
 }
 
+const normalizeJid = (j) => {
+  let str = String(j).trim();
+  if (!str.includes('@')) str += '@s.whatsapp.net';
+  return str;
+};
+
 /**
  * Cliente WhatsApp não-oficial, implementado do zero.
  *
@@ -45,10 +53,10 @@ export function buildAckStanza(node, errorCode, meId) {
  *     if (u.qr) console.log('QR:', u.qr);
  *     if (u.connection === 'open') console.log('conectado!');
  *   });
- *
- * O cliente suporta:
- *  - Registro de dispositivo novo (QR code)
- *  - Reutilização de sessão (creds.me preenchido)
+ *   client.ev.on('messages.upsert', ({ messages }) => {
+ *     console.log('Mensagem recebida:', messages);
+ *   });
+ *   await client.sendMessage('5511999999999@s.whatsapp.net', { text: 'Olá!' });
  */
 export async function connectWA(options = {}) {
   const {
@@ -72,6 +80,8 @@ export async function connectWA(options = {}) {
   if (creds && !creds.signedPreKey?.signature) {
     await signPreKeys(creds);
   }
+
+  const signalRepo = makeSignalRepository(creds, ev);
 
   let conn = null;
 
@@ -109,7 +119,7 @@ export async function connectWA(options = {}) {
       }, keepAliveIntervalMs);
     };
 
-    const query = (node, timeoutMs = 10000) => {
+    const query = (node, timeoutMs = 15000) => {
       if (!node.attrs.id) node.attrs.id = generateMessageTag();
       const msgId = node.attrs.id;
       const buff = encodeBinaryNode(node);
@@ -279,7 +289,59 @@ export async function connectWA(options = {}) {
           ev.emit('receipts.update', [node]);
           break;
         case 'message':
-          ev.emit('messages.upsert', [{ message: node, type: 'notify' }]);
+          (async () => {
+            try {
+              const from = node.attrs.from;
+              const participant = node.attrs.participant;
+              const senderJid = participant || from;
+              const encNode = getBinaryNodeChild(node, 'enc');
+              let decodedMsg = null;
+
+              if (encNode && Buffer.isBuffer(encNode.content)) {
+                const encType = encNode.attrs.type;
+                try {
+                  const decrypted = await signalRepo.decryptMessage({
+                    jid: senderJid,
+                    type: encType,
+                    ciphertext: encNode.content
+                  });
+                  decodedMsg = decodeMessage(decrypted);
+                } catch (err) {
+                  console.error('[message decrypt fail]', err.message);
+                  decodedMsg = { rawError: err.message };
+                }
+              }
+
+              // Envia recibo de entrega automaticamente
+              if (node.attrs.id) {
+                const receiptNode = {
+                  tag: 'receipt',
+                  attrs: {
+                    id: node.attrs.id,
+                    to: from
+                  }
+                };
+                if (participant) receiptNode.attrs.participant = participant;
+                sock.sendNode(receiptNode).catch(() => {});
+              }
+
+              const msgInfo = {
+                key: {
+                  remoteJid: from,
+                  fromMe: false,
+                  id: node.attrs.id,
+                  participant
+                },
+                message: decodedMsg,
+                messageTimestamp: +node.attrs.t || Math.floor(Date.now() / 1000)
+              };
+
+              ev.emit('messages.upsert', { messages: [msgInfo], type: 'notify' });
+              ev.emit('message', msgInfo);
+            } catch (e) {
+              console.error('[message handler fail]', e.message);
+            }
+          })();
           break;
         case 'presence':
           ev.emit('presence.update', [node]);
@@ -370,14 +432,86 @@ export async function connectWA(options = {}) {
   // primeira conexão
   await connectOnce(creds);
 
-  // se não está pareado, o usuário precisa escanear o QR (evento iq pair-device).
-  // quando o pair-success chegar, handlePairSuccess atualiza as creds e emite creds.update.
-  // o app pode reconectar chamando connectWA de novo com as creds atualizadas.
+  /**
+   * Envia uma mensagem com criptografia Signal E2EE.
+   * @param {string} jid destinatário (ex: "5511999999999@s.whatsapp.net")
+   * @param {string|object} content { text: "Olá!" } ou string simples
+   * @param {object} options opções extras
+   */
+  const sendMessage = async (jid, content, options = {}) => {
+    const targetJid = normalizeJid(jid);
+    const messageBytes = encodeMessage(content);
+
+    const hasSess = await signalRepo.hasSession(targetJid);
+    if (!hasSess) {
+      console.log(`[signal] buscando pré-chaves de ${targetJid}...`);
+      await fetchPreKeys(conn.query, targetJid, signalRepo);
+    }
+
+    const enc = await signalRepo.encryptMessage({ jid: targetJid, data: messageBytes });
+    const msgId = options.id || generateMessageTag();
+
+    const messageNode = {
+      tag: 'message',
+      attrs: {
+        id: msgId,
+        to: targetJid,
+        type: 'text'
+      },
+      content: [
+        {
+          tag: 'enc',
+          attrs: {
+            v: '2',
+            type: enc.type
+          },
+          content: enc.ciphertext
+        }
+      ]
+    };
+
+    await conn.sock.sendNode(messageNode);
+
+    return {
+      key: {
+        remoteJid: targetJid,
+        fromMe: true,
+        id: msgId
+      },
+      message: typeof content === 'string' ? { conversation: content } : content,
+      messageTimestamp: Math.floor(Date.now() / 1000),
+      status: 'PENDING'
+    };
+  };
+
+  /**
+   * Envia confirmação de leitura / entrega para uma mensagem.
+   */
+  const sendReceipt = async (jid, participant, messageIds, type = 'read') => {
+    const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
+    const targetJid = normalizeJid(jid);
+    for (const id of ids) {
+      const node = {
+        tag: 'receipt',
+        attrs: {
+          id,
+          to: targetJid,
+          type
+        }
+      };
+      if (participant) node.attrs.participant = participant;
+      await conn.sock.sendNode(node);
+    }
+  };
+
   return {
     ev,
     get sock() { return conn.sock; },
-    query: (node) => conn.query(node),
+    query: (node, timeout) => conn.query(node, timeout),
     sendNode: (node) => conn.sock.sendNode(node),
+    sendMessage,
+    sendReceipt,
+    signal: signalRepo,
     close: () => conn.close()
   };
 }
