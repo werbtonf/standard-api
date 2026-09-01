@@ -179,52 +179,56 @@ export async function usyncUser(query, input) {
   let phone = String(input).trim().replace(/[^0-9]/g, '');
   if (!phone.startsWith('+')) phone = '+' + phone;
 
-  const res = await query({
-    tag: 'iq',
-    attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'usync' },
-    content: [
-      {
-        tag: 'usync',
-        attrs: { sid: Date.now().toString(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
-        content: [
-          {
-            tag: 'query',
-            attrs: {},
-            content: [
-              { tag: 'contact', attrs: {} },
-              { tag: 'devices', attrs: { version: '2' } }
-            ]
-          },
-          {
-            tag: 'list',
-            attrs: {},
-            content: [
-              { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: phone }] }
-            ]
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'usync' },
+      content: [
+        {
+          tag: 'usync',
+          attrs: { sid: Date.now().toString(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
+          content: [
+            {
+              tag: 'query',
+              attrs: {},
+              content: [
+                { tag: 'contact', attrs: {} },
+                { tag: 'devices', attrs: { version: '2' } }
+              ]
+            },
+            {
+              tag: 'list',
+              attrs: {},
+              content: [
+                { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: phone }] }
+              ]
+            }
+          ]
+        }
+      ]
+    }, 8000);
+
+    const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
+    const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
+    const userNode = listNode ? (listNode.content || []).find(c => c && c.tag === 'user') : null;
+
+    if (userNode && userNode.attrs && userNode.attrs.jid) {
+      const canonicalJid = userNode.attrs.jid;
+      const devicesNode = (userNode.content || []).find(c => c && c.tag === 'devices');
+      const deviceListNode = devicesNode ? (devicesNode.content || []).find(c => c && c.tag === 'device-list') : null;
+      const devices = [];
+      if (deviceListNode && Array.isArray(deviceListNode.content)) {
+        for (const dev of deviceListNode.content) {
+          if (dev && dev.tag === 'device' && dev.attrs && dev.attrs.id !== undefined) {
+            devices.push(+dev.attrs.id);
           }
-        ]
-      }
-    ]
-  });
-
-  const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
-  const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
-  const userNode = listNode ? (listNode.content || []).find(c => c && c.tag === 'user') : null;
-
-  if (userNode && userNode.attrs && userNode.attrs.jid) {
-    const canonicalJid = userNode.attrs.jid;
-    const devicesNode = (userNode.content || []).find(c => c && c.tag === 'devices');
-    const deviceListNode = devicesNode ? (devicesNode.content || []).find(c => c && c.tag === 'device-list') : null;
-    const devices = [];
-    if (deviceListNode && Array.isArray(deviceListNode.content)) {
-      for (const dev of deviceListNode.content) {
-        if (dev && dev.tag === 'device' && dev.attrs && dev.attrs.id !== undefined) {
-          devices.push(+dev.attrs.id);
         }
       }
+      if (!devices.includes(0)) devices.push(0);
+      return { jid: canonicalJid, devices };
     }
-    if (!devices.includes(0)) devices.push(0);
-    return { jid: canonicalJid, devices };
+  } catch (err) {
+    console.warn('[usync] Falha ao consultar usync:', err.message);
   }
 
   const rawJid = String(input).includes('@') ? String(input) : `${input.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
@@ -232,9 +236,21 @@ export async function usyncUser(query, input) {
 }
 
 /**
- * Busca pré-chaves públicas do destinatário no servidor do WhatsApp.
+ * Busca pré-chaves públicas dos destinatários no servidor do WhatsApp em um único IQ em lote.
  */
-export async function fetchPreKeys(query, jid, repository) {
+export async function fetchPreKeys(query, jids, repository) {
+  const jidList = Array.isArray(jids) ? jids : [jids];
+  const jidsToFetch = [];
+
+  for (const jid of jidList) {
+    const hasSess = await repository.hasSession(jid);
+    if (!hasSess) {
+      jidsToFetch.push(jid);
+    }
+  }
+
+  if (jidsToFetch.length === 0) return;
+
   const S_WHATSAPP_NET = 's.whatsapp.net';
   const iq = {
     tag: 'iq',
@@ -247,32 +263,10 @@ export async function fetchPreKeys(query, jid, repository) {
       {
         tag: 'key',
         attrs: {},
-        content: [
-          { tag: 'user', attrs: { jid }, content: undefined }
-        ]
+        content: jidsToFetch.map(jid => ({ tag: 'user', attrs: { jid }, content: undefined }))
       }
     ]
   };
-
-  const result = await query(iq);
-  const listNode = (result.content || []).find(c => c && c.tag === 'list');
-  if (!listNode) throw new Error('no list node in pre-key response');
-
-  const userNode = (listNode.content || []).find(c => c && c.tag === 'user');
-  if (!userNode) throw new Error('user not found in pre-key response');
-
-  const registrationNode = (userNode.content || []).find(c => c && c.tag === 'registration');
-  const identityNode = (userNode.content || []).find(c => c && c.tag === 'identity');
-  const skeyNode = (userNode.content || []).find(c => c && c.tag === 'skey');
-  const preKeyNode = (userNode.content || []).find(c => c && c.tag === 'key');
-
-  if (!identityNode || !skeyNode) {
-    throw new Error('missing identity or signedPreKey in pre-key response');
-  }
-
-  const skeyIdNode = (skeyNode.content || []).find(c => c && c.tag === 'id');
-  const skeyValNode = (skeyNode.content || []).find(c => c && c.tag === 'value');
-  const skeySigNode = (skeyNode.content || []).find(c => c && c.tag === 'signature');
 
   const readBigEndian = (buf) => {
     if (!buf) return 0;
@@ -284,27 +278,51 @@ export async function fetchPreKeys(query, jid, repository) {
     return val;
   };
 
-  const sessionBundle = {
-    registrationId: registrationNode ? readBigEndian(registrationNode.content) : 0,
-    identityKey: generateSignalPubKey(identityNode.content),
-    signedPreKey: {
-      keyId: skeyIdNode ? readBigEndian(skeyIdNode.content) : 1,
-      publicKey: generateSignalPubKey(skeyValNode?.content),
-      signature: skeySigNode?.content
-    }
-  };
+  try {
+    const result = await query(iq, 8000);
+    const listNode = (result.content || []).find(c => c && c.tag === 'list');
+    if (!listNode) return;
 
-  if (preKeyNode) {
-    const preKeyIdNode = (preKeyNode.content || []).find(c => c && c.tag === 'id');
-    const preKeyValNode = (preKeyNode.content || []).find(c => c && c.tag === 'value');
-    if (preKeyValNode) {
-      sessionBundle.preKey = {
-        keyId: preKeyIdNode ? readBigEndian(preKeyIdNode.content) : 1,
-        publicKey: generateSignalPubKey(preKeyValNode.content)
+    const userNodes = (listNode.content || []).filter(c => c && c.tag === 'user');
+    for (const userNode of userNodes) {
+      const jid = userNode.attrs.jid;
+      if (!jid) continue;
+
+      const registrationNode = (userNode.content || []).find(c => c && c.tag === 'registration');
+      const identityNode = (userNode.content || []).find(c => c && c.tag === 'identity');
+      const skeyNode = (userNode.content || []).find(c => c && c.tag === 'skey');
+      const preKeyNode = (userNode.content || []).find(c => c && c.tag === 'key');
+
+      if (!identityNode || !skeyNode) continue;
+
+      const skeyIdNode = (skeyNode.content || []).find(c => c && c.tag === 'id');
+      const skeyValNode = (skeyNode.content || []).find(c => c && c.tag === 'value');
+      const skeySigNode = (skeyNode.content || []).find(c => c && c.tag === 'signature');
+
+      const sessionBundle = {
+        registrationId: registrationNode ? readBigEndian(registrationNode.content) : 0,
+        identityKey: generateSignalPubKey(identityNode.content),
+        signedPreKey: {
+          keyId: skeyIdNode ? readBigEndian(skeyIdNode.content) : 1,
+          publicKey: generateSignalPubKey(skeyValNode?.content),
+          signature: skeySigNode?.content
+        }
       };
-    }
-  }
 
-  await repository.injectSession(jid, sessionBundle);
-  return sessionBundle;
+      if (preKeyNode) {
+        const preKeyIdNode = (preKeyNode.content || []).find(c => c && c.tag === 'id');
+        const preKeyValNode = (preKeyNode.content || []).find(c => c && c.tag === 'value');
+        if (preKeyValNode) {
+          sessionBundle.preKey = {
+            keyId: preKeyIdNode ? readBigEndian(preKeyIdNode.content) : 1,
+            publicKey: generateSignalPubKey(preKeyValNode.content)
+          };
+        }
+      }
+
+      await repository.injectSession(jid, sessionBundle);
+    }
+  } catch (err) {
+    console.warn('[fetchPreKeys] Falha no lote de pré-chaves:', err.message);
+  }
 }

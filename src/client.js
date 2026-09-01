@@ -395,20 +395,19 @@ export async function connectWA(options = {}) {
     const messageBytes = encodeMessage(content);
     const { user, server } = jidDecode(canonicalJid) || { user: canonicalJid.split('@')[0], server: 's.whatsapp.net' };
 
+    const targetDeviceJids = devices.map(devId => devId === 0 ? canonicalJid : `${user}:${devId}@${server}`);
+
+    // Busca pré-chaves de todos os dispositivos em lote
+    await fetchPreKeys(conn.query, targetDeviceJids, signalRepo);
+
     const participantNodes = [];
     let shouldIncludeDeviceIdentity = false;
 
-    for (const devId of devices) {
-      const deviceJid = devId === 0 ? canonicalJid : `${user}:${devId}@${server}`;
+    for (const deviceJid of targetDeviceJids) {
       const hasSess = await signalRepo.hasSession(deviceJid);
       if (!hasSess) {
-        console.log(`[signal] buscando pré-chaves de ${deviceJid}...`);
-        try {
-          await fetchPreKeys(conn.query, deviceJid, signalRepo);
-        } catch (err) {
-          console.warn(`[signal] falha ao buscar pré-chaves de ${deviceJid}:`, err.message);
-          continue;
-        }
+        // Se for dispositivo secundário sem sessão, ignora e envia para o primário
+        if (deviceJid !== canonicalJid) continue;
       }
 
       try {
@@ -436,7 +435,7 @@ export async function connectWA(options = {}) {
     }
 
     if (participantNodes.length === 0) {
-      throw new Error('Falha ao cifrar mensagem para todos os dispositivos do destinatário.');
+      throw new Error('Falha ao cifrar mensagem para os dispositivos do destinatário.');
     }
 
     const msgId = options.id || generateMessageTag();
