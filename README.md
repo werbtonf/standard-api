@@ -1,32 +1,102 @@
 # standard-api
 
-Cliente não-oficial do WhatsApp Web implementado do zero em Node.js (protocolo binário WABinary + Noise XX_25519_AESGCM_SHA256), sem dependências pesadas de automação de navegador (Puppeteer/Chromium).
+API REST e Cliente WhatsApp Web Multi-Device de alta performance implementado do zero em Node.js (protocolo binário WABinary + Noise XX + Signal Protocol E2EE), sem dependências pesadas de navegador (sem Puppeteer/Chromium).
 
-## Recursos
+---
 
-- **Conexão WebSocket Direta**: Conecta diretamente a `wss://web.whatsapp.com/ws/chat`.
-- **Criptografia Noise XX**: Implementação completa de handshake, verificação de certificados Ed25519 e enquadramento de transporte AES-GCM.
-- **Protocolo WABinary**: Encoder e Decoder de nós binários com dicionários de tokens e suporte a compressão zlib.
-- **Pareamento por QR Code Atualizado**: Tratamento completo do fluxo recente do WhatsApp com rotação de `advSecretKey` (`companion_reg_refresh`) e resposta de ACKs universais.
-- **Roteamento de Borda**: Suporte automático a `edge_routing` (`?ED=`).
-- **Persistência de Sessão**: Armazenamento e restauração de credenciais Signal/Noise.
+## 🚀 Como Iniciar a API REST (Fastify)
 
-## Instalação
+Para iniciar o servidor HTTP da API:
 
 ```bash
-npm install
+npm start
 ```
+O servidor iniciará em `http://localhost:3000`.
 
-## Uso
+---
 
-### Pareamento por QR Code
+## 📡 Endpoints da API REST
 
+### 1. Status da Conexão
+Retorna o estado da conexão e os dados da conta conectada.
 ```bash
-node examples/register.js
+curl -X GET http://localhost:3000/instance/status
+```
+**Resposta de Exemplo:**
+```json
+{
+  "status": "open",
+  "connected": true,
+  "me": {
+    "id": "556392757009@s.whatsapp.net:52",
+    "lid": "225804415979533@lid:52"
+  },
+  "uptime": 120,
+  "timestamp": "2026-09-01T22:22:18.014Z"
+}
 ```
 
-O QR Code será renderizado no terminal e salvo como imagem em `/tmp/wa-api-qr.png`.
+---
 
-## Licença
+### 2. QR Code para Conectar Aparelho
+Retorna o QR Code em formato JSON (base64) ou como página HTML para escanear no navegador.
+* **No Navegador (Auto-refresh):** `http://localhost:3000/instance/qr?format=html`
+* **JSON:**
+```bash
+curl -X GET http://localhost:3000/instance/qr
+```
 
-MIT
+---
+
+### 3. Enviar Mensagem de Texto
+Envia uma mensagem criptografada ponta a ponta (E2EE Signal) para qualquer número.
+```bash
+curl -X POST http://localhost:3000/message/send-text \
+  -H "Content-Type: application/json" \
+  -d '{
+    "number": "5599991081780",
+    "message": "Olá! Mensagem enviada via API REST Fastify 🚀"
+  }'
+```
+**Resposta:**
+```json
+{
+  "status": "SUCCESS",
+  "messageId": "1788301341775-4",
+  "to": "559991081780@s.whatsapp.net",
+  "timestamp": 1788301341
+}
+```
+
+---
+
+### 4. Gerenciamento de Conexão
+* **Iniciar Conexão:** `POST http://localhost:3000/instance/connect`
+* **Logout (desconectar e limpar sessão):** `POST http://localhost:3000/instance/logout`
+
+---
+
+## 💻 Uso como Biblioteca Node.js
+
+```javascript
+import { connectWA } from 'standard-api';
+import { readFile } from 'node:fs/promises';
+
+const creds = JSON.parse(await readFile('./sessions/session.json', 'utf8'));
+const client = await connectWA({ creds });
+
+client.ev.on('connection.update', (update) => {
+  if (update.connection === 'open') {
+    client.sendMessage('5599991081780', { text: 'Olá!' });
+  }
+});
+```
+
+---
+
+## 🛠️ Recursos Implementados
+
+- **Criptografia Noise XX**: Handshake direto com os servidores do WhatsApp via WebSocket.
+- **Signal Protocol E2EE (Double Ratchet)**: Troca de pré-chaves, padding PKCS7 aleatório e cifragem multi-device.
+- **USync Resolver**: Resolução automática de números canônicos (com ou sem 9º dígito).
+- **Fastify REST API**: Servidor HTTP moderno, leve e ultra-rápido.
