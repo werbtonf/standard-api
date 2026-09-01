@@ -52,7 +52,8 @@ export function makeSignalRepository(creds, ev) {
       const sess = creds.sessions[id];
       if (sess) {
         try {
-          return libsignal.SessionRecord.deserialize(Buffer.isBuffer(sess) ? sess : Buffer.from(sess, 'base64'));
+          const parsed = typeof sess === 'string' ? JSON.parse(sess) : sess;
+          return libsignal.SessionRecord.deserialize(parsed);
         } catch (e) {
           return null;
         }
@@ -61,7 +62,7 @@ export function makeSignalRepository(creds, ev) {
     },
 
     async storeSession(id, record) {
-      creds.sessions[id] = record.serialize().toString('base64');
+      creds.sessions[id] = JSON.stringify(record.serialize());
       if (ev) ev.emit('creds.update', { sessions: creds.sessions });
     },
 
