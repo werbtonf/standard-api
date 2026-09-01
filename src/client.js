@@ -3,10 +3,10 @@ import { WASocket } from './ws.js';
 import { makeNoiseHandler } from './noise.js';
 import { Curve, randomBytes } from './crypto.js';
 import { encodeBinaryNode, decodeBinaryNode } from './wabinary.js';
-import { encodeHandshakeMessage, decodeHandshakeMessage } from './proto.js';
+import { encodeHandshakeMessage, decodeHandshakeMessage, encodeADVSignedDeviceIdentity } from './proto.js';
 import { signPreKeys, normalizeCreds, buildRegistrationPayload, buildLoginPayload, buildPairingQRData } from './auth.js';
 import { configureSuccessfulPairing } from './pairing.js';
-import { makeSignalRepository, fetchPreKeys } from './signal.js';
+import { makeSignalRepository, fetchPreKeys, usyncUser, jidDecode } from './signal.js';
 import { encodeMessage, decodeMessage } from './messages.js';
 import {
   WA_WS_URL,
@@ -46,17 +46,6 @@ const normalizeJid = (j) => {
 
 /**
  * Cliente WhatsApp não-oficial, implementado do zero.
- *
- * Uso:
- *   const client = await connectWA({ creds, browser, pushName });
- *   client.ev.on('connection.update', (u) => {
- *     if (u.qr) console.log('QR:', u.qr);
- *     if (u.connection === 'open') console.log('conectado!');
- *   });
- *   client.ev.on('messages.upsert', ({ messages }) => {
- *     console.log('Mensagem recebida:', messages);
- *   });
- *   await client.sendMessage('5511999999999@s.whatsapp.net', { text: 'Olá!' });
  */
 export async function connectWA(options = {}) {
   const {
@@ -87,10 +76,6 @@ export async function connectWA(options = {}) {
 
   const connectOnce = async (currentCreds) => {
     const ephemeralKeyPair = await Curve.generateKeyPair();
-    // IMPORTANTE: o noiseKey (chave estática de longa duração) vem das creds.
-    // Ele é o mesmo que aparece no QR de pareamento (creds.noiseKey.public).
-    // Gerar um novo aqui quebraria o pareamento (o servidor valida que o
-    // noiseKey do handshake corresponde ao do QR).
     const noiseKeyPair = currentCreds.noiseKey;
     const noise = makeNoiseHandler({
       keyPair: ephemeralKeyPair,
@@ -137,36 +122,20 @@ export async function connectWA(options = {}) {
       });
     };
 
-    // --- fluxo de pareamento (dispositivo novo escaneando o QR) ---
-    // ref atualmente exibido no QR (para re-renderizar em companion_reg_refresh)
+    // --- fluxo de pareamento ---
     let currentQRRef = null;
     let refreshQR = () => {};
     let qrTimer = null;
 
-    // <notification type="companion_reg_refresh">: o servidor apos o scan
-    // aposenta o material de registro. O cliente deve rotacionar o advSecretKey
-    // e re-renderizar o QR atual com o novo secret. Sem isso, o pair-success
-    // nunca chega e o celular mostra "Não foi possível conectar".
     const handleCompanionRegRefresh = (node) => {
       const hasValidChild = COMPANION_REG_REFRESH_CHILDREN.some((tag) => getBinaryNodeChild(node, tag));
-      if (!hasValidChild) {
-        console.log('[companion_reg_refresh] sem child esperado; ignorando rotação');
-        return;
-      }
-      if (currentCreds?.me) {
-        console.log('[companion_reg_refresh] sessão registrada; mantendo adv secret');
-        return;
-      }
-      // rotaciona o advSecretKey (32 bytes CSPRNG base64)
+      if (!hasValidChild) return;
+      if (currentCreds?.me) return;
       currentCreds.advSecretKey = randomBytes(32).toString('base64');
       ev.emit('creds.update', { advSecretKey: currentCreds.advSecretKey });
-      console.log('[companion_reg_refresh] adv secret rotacionado; re-renderizando QR');
       refreshQR();
     };
 
-    // <iq type="set"><pair-device><ref>...</ref></pair-device></iq>
-    // Gera o QR de pareamento. Re-renderiza com o mesmo ref quando o
-    // adv secret é rotacionado (companion_reg_refresh).
     const handlePairDevice = async (node) => {
       try {
         const iq = { tag: 'iq', attrs: { to: S_WHATSAPP_NET, type: 'result', id: node.attrs.id } };
@@ -212,22 +181,18 @@ export async function connectWA(options = {}) {
           advSecretKey: currentCreds.advSecretKey,
           signedIdentityKey: currentCreds.signedIdentityKey
         });
-        console.log('[pair-success] pareamento validado, reply:', JSON.stringify(reply).slice(0, 300));
         Object.assign(currentCreds, newCreds);
         ev.emit('creds.update', newCreds);
         ev.emit('connection.update', { isNewLogin: true, qr: undefined });
         await sock.sendNode(reply);
-        console.log('[pair-success] reply enviado, reconectando...');
         setTimeout(() => reconnect(), 1000);
         if (pairResolve) pairResolve(currentCreds);
       } catch (e) {
-        console.error('[pair-success] ERRO:', e.message);
         ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: e } });
       }
     };
 
     const emitNode = (node) => {
-      // resposta a query
       if (node.attrs.id && queries.has(node.attrs.id)) {
         const { resolve, reject, timeout } = queries.get(node.attrs.id);
         clearTimeout(timeout);
@@ -260,13 +225,11 @@ export async function connectWA(options = {}) {
             if (routingInfoNode && Buffer.isBuffer(routingInfoNode.content)) {
               currentCreds.routingInfo = routingInfoNode.content;
               ev.emit('creds.update', { routingInfo: currentCreds.routingInfo });
-              console.log('[ib] edge_routing salvo:', currentCreds.routingInfo.length, 'bytes');
             }
           }
           break;
         case 'notification':
           ev.emit('notification', node);
-          // ACK para todas as notificações do servidor
           if (node.attrs.id) {
             sock.sendNode(buildAckStanza(node, undefined, currentCreds?.me?.id)).catch(() => {});
           }
@@ -276,12 +239,10 @@ export async function connectWA(options = {}) {
           break;
         case 'iq':
           ev.emit('iq', node);
-          // par device: gera o QR (com suporte a refresh)
           if (getBinaryNodeChild(node, 'pair-device')) {
             handlePairDevice(node);
           }
           if (getBinaryNodeChild(node, 'pair-success')) {
-            console.log('[pair-success] recebido:', JSON.stringify(node).slice(0, 600));
             handlePairSuccess(node);
           }
           break;
@@ -312,7 +273,6 @@ export async function connectWA(options = {}) {
                 }
               }
 
-              // Envia recibo de entrega automaticamente
               if (node.attrs.id) {
                 const receiptNode = {
                   tag: 'receipt',
@@ -363,7 +323,6 @@ export async function connectWA(options = {}) {
       sock.once('error', reject);
     });
 
-    // handshake Noise XX
     const helloMsg = encodeHandshakeMessage({
       clientHello: { ephemeral: ephemeralKeyPair.public }
     });
@@ -392,7 +351,6 @@ export async function connectWA(options = {}) {
     await sock.sendRaw(clientFinish);
     await noise.finishInit();
 
-    // frame listener para stanzas binárias após o handshake
     sock.on('frame', (frameBuf) => {
       (async () => {
         try {
@@ -406,8 +364,6 @@ export async function connectWA(options = {}) {
       })();
     });
 
-    // keepalive ativo imediatamente após o handshake (o servidor derruba a
-    // conexão sem pings, mesmo durante o registro/pareamento)
     startKeepAlive();
 
     conn = { sock, noise, query, close: () => { clearInterval(keepAliveReq); if (qrTimer) clearTimeout(qrTimer); sock.close(); } };
@@ -429,52 +385,94 @@ export async function connectWA(options = {}) {
     }
   };
 
-  // primeira conexão
   await connectOnce(creds);
 
   /**
-   * Envia uma mensagem com criptografia Signal E2EE.
-   * @param {string} jid destinatário (ex: "5511999999999@s.whatsapp.net")
-   * @param {string|object} content { text: "Olá!" } ou string simples
-   * @param {object} options opções extras
+   * Envia uma mensagem com criptografia Signal E2EE Multi-Device completa.
    */
   const sendMessage = async (jid, content, options = {}) => {
-    const targetJid = normalizeJid(jid);
+    const { jid: canonicalJid, devices } = await usyncUser(conn.query, jid);
     const messageBytes = encodeMessage(content);
+    const { user, server } = jidDecode(canonicalJid) || { user: canonicalJid.split('@')[0], server: 's.whatsapp.net' };
 
-    const hasSess = await signalRepo.hasSession(targetJid);
-    if (!hasSess) {
-      console.log(`[signal] buscando pré-chaves de ${targetJid}...`);
-      await fetchPreKeys(conn.query, targetJid, signalRepo);
+    const participantNodes = [];
+    let shouldIncludeDeviceIdentity = false;
+
+    for (const devId of devices) {
+      const deviceJid = devId === 0 ? canonicalJid : `${user}:${devId}@${server}`;
+      const hasSess = await signalRepo.hasSession(deviceJid);
+      if (!hasSess) {
+        console.log(`[signal] buscando pré-chaves de ${deviceJid}...`);
+        try {
+          await fetchPreKeys(conn.query, deviceJid, signalRepo);
+        } catch (err) {
+          console.warn(`[signal] falha ao buscar pré-chaves de ${deviceJid}:`, err.message);
+          continue;
+        }
+      }
+
+      try {
+        const enc = await signalRepo.encryptMessage({ jid: deviceJid, data: messageBytes });
+        if (enc.type === 'pkmsg') {
+          shouldIncludeDeviceIdentity = true;
+        }
+        participantNodes.push({
+          tag: 'to',
+          attrs: { jid: deviceJid },
+          content: [
+            {
+              tag: 'enc',
+              attrs: {
+                v: '2',
+                type: enc.type
+              },
+              content: enc.ciphertext
+            }
+          ]
+        });
+      } catch (err) {
+        console.warn(`[signal] falha ao cifrar para ${deviceJid}:`, err.message);
+      }
     }
 
-    const enc = await signalRepo.encryptMessage({ jid: targetJid, data: messageBytes });
+    if (participantNodes.length === 0) {
+      throw new Error('Falha ao cifrar mensagem para todos os dispositivos do destinatário.');
+    }
+
     const msgId = options.id || generateMessageTag();
 
     const messageNode = {
       tag: 'message',
       attrs: {
         id: msgId,
-        to: targetJid,
+        to: canonicalJid,
         type: 'text'
       },
       content: [
         {
-          tag: 'enc',
-          attrs: {
-            v: '2',
-            type: enc.type
-          },
-          content: enc.ciphertext
+          tag: 'participants',
+          attrs: {},
+          content: participantNodes
         }
       ]
     };
+
+    if (shouldIncludeDeviceIdentity && creds.account) {
+      const deviceIdentityBuf = encodeADVSignedDeviceIdentity(creds.account);
+      if (deviceIdentityBuf) {
+        messageNode.content.push({
+          tag: 'device-identity',
+          attrs: {},
+          content: deviceIdentityBuf
+        });
+      }
+    }
 
     await conn.sock.sendNode(messageNode);
 
     return {
       key: {
-        remoteJid: targetJid,
+        remoteJid: canonicalJid,
         fromMe: true,
         id: msgId
       },
@@ -484,9 +482,6 @@ export async function connectWA(options = {}) {
     };
   };
 
-  /**
-   * Envia confirmação de leitura / entrega para uma mensagem.
-   */
   const sendReceipt = async (jid, participant, messageIds, type = 'read') => {
     const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
     const targetJid = normalizeJid(jid);

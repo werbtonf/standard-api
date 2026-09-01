@@ -1,19 +1,26 @@
+import { randomBytes } from 'node:crypto';
 import {
   encodeBytes,
   encodeVarint,
-  decodeGeneric,
-  readVarint,
-  readField,
-  WIRE_LENGTH_DELIMITED,
-  WIRE_VARINT
+  decodeGeneric
 } from './proto.js';
 
+export const writeRandomPadMax16 = (msg) => {
+  const pad = randomBytes(1);
+  const padLength = (pad[0] & 0x0f) + 1;
+  return Buffer.concat([msg, Buffer.alloc(padLength, padLength)]);
+};
+
+export const unpadRandomMax16 = (e) => {
+  const t = Buffer.from(e);
+  if (t.length === 0) return t;
+  const pad = t[t.length - 1];
+  if (pad > t.length || pad > 16 || pad === 0) return t;
+  return t.subarray(0, t.length - pad);
+};
+
 /**
- * Codifica um objeto Message em bytes Protobuf.
- * Suporta:
- *  - conversation (field 1)
- *  - extendedTextMessage (field 6)
- *  - reactionMessage (field 46)
+ * Codifica um objeto Message em bytes Protobuf COM padding PKCS7 aleatório (padrão WhatsApp).
  */
 export function encodeMessage(msg) {
   if (typeof msg === 'string') {
@@ -41,7 +48,8 @@ export function encodeMessage(msg) {
     parts.push(encodeBytes(46, encodeReactionMessage(r)));
   }
 
-  return Buffer.concat(parts);
+  const rawBytes = Buffer.concat(parts);
+  return writeRandomPadMax16(rawBytes);
 }
 
 function encodeExtendedTextMessage(ext) {
@@ -86,7 +94,8 @@ function encodeReactionMessage(r) {
 export function decodeMessage(buf) {
   if (!buf || !buf.length) return {};
   try {
-    const o = decodeGeneric(buf);
+    const unpadded = unpadRandomMax16(buf);
+    const o = decodeGeneric(unpadded);
     const msg = {};
 
     if (o[1] && o[1][0]) {

@@ -33,9 +33,23 @@ const client = await connectWA({
   pushName: 'standard-api'
 });
 
-client.ev.on('creds.update', async () => {
-  await writeFile(SESSION_FILE, JSON.stringify(creds, null, 2));
-});
+let isSaving = false;
+let queuedSave = false;
+const saveCredsSafe = async () => {
+  if (isSaving) { queuedSave = true; return; }
+  isSaving = true;
+  try {
+    await writeFile(SESSION_FILE, JSON.stringify(creds, null, 2));
+  } finally {
+    isSaving = false;
+    if (queuedSave) {
+      queuedSave = false;
+      saveCredsSafe();
+    }
+  }
+};
+
+client.ev.on('creds.update', saveCredsSafe);
 
 client.ev.on('connection.update', async (update) => {
   if (update.connection === 'open') {

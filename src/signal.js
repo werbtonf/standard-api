@@ -173,6 +173,65 @@ export function makeSignalRepository(creds, ev) {
 }
 
 /**
+ * Consulta o USync para obter o JID canônico e a lista de dispositivos ativos.
+ */
+export async function usyncUser(query, input) {
+  let phone = String(input).trim().replace(/[^0-9]/g, '');
+  if (!phone.startsWith('+')) phone = '+' + phone;
+
+  const res = await query({
+    tag: 'iq',
+    attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'usync' },
+    content: [
+      {
+        tag: 'usync',
+        attrs: { sid: Date.now().toString(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
+        content: [
+          {
+            tag: 'query',
+            attrs: {},
+            content: [
+              { tag: 'contact', attrs: {} },
+              { tag: 'devices', attrs: { version: '2' } }
+            ]
+          },
+          {
+            tag: 'list',
+            attrs: {},
+            content: [
+              { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: phone }] }
+            ]
+          }
+        ]
+      }
+    ]
+  });
+
+  const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
+  const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
+  const userNode = listNode ? (listNode.content || []).find(c => c && c.tag === 'user') : null;
+
+  if (userNode && userNode.attrs && userNode.attrs.jid) {
+    const canonicalJid = userNode.attrs.jid;
+    const devicesNode = (userNode.content || []).find(c => c && c.tag === 'devices');
+    const deviceListNode = devicesNode ? (devicesNode.content || []).find(c => c && c.tag === 'device-list') : null;
+    const devices = [];
+    if (deviceListNode && Array.isArray(deviceListNode.content)) {
+      for (const dev of deviceListNode.content) {
+        if (dev && dev.tag === 'device' && dev.attrs && dev.attrs.id !== undefined) {
+          devices.push(+dev.attrs.id);
+        }
+      }
+    }
+    if (!devices.includes(0)) devices.push(0);
+    return { jid: canonicalJid, devices };
+  }
+
+  const rawJid = String(input).includes('@') ? String(input) : `${input.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+  return { jid: rawJid, devices: [0] };
+}
+
+/**
  * Busca pré-chaves públicas do destinatário no servidor do WhatsApp.
  */
 export async function fetchPreKeys(query, jid, repository) {

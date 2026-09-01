@@ -40,6 +40,12 @@ export function normalizeCreds(creds) {
     if (creds.signedPreKey.signature) creds.signedPreKey.signature = toBuffer(creds.signedPreKey.signature);
   }
   if (creds.routingInfo) creds.routingInfo = toBuffer(creds.routingInfo);
+  if (creds.account) {
+    if (creds.account.details) creds.account.details = toBuffer(creds.account.details);
+    if (creds.account.accountSignatureKey) creds.account.accountSignatureKey = toBuffer(creds.account.accountSignatureKey);
+    if (creds.account.accountSignature) creds.account.accountSignature = toBuffer(creds.account.accountSignature);
+    if (creds.account.deviceSignature) creds.account.deviceSignature = toBuffer(creds.account.deviceSignature);
+  }
   return creds;
 }
 
