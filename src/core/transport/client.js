@@ -566,7 +566,7 @@ export async function connectWA(options = {}) {
     console.log(`[sendMessage] canonicalJid=${canonicalJid} devices=${JSON.stringify(devices.map(d => ({ id: d.id, jid: d.jid, keyIndex: d.keyIndex })))}`);
 
     // Filter out our own companion devices (don't send to self)
-    const ownJid = currentCreds?.me?.id;
+    const ownJid = creds?.me?.id;
     const ownUser = ownJid ? ownJid.split('@')[0].split(':')[0] : null;
     const filteredDevices = devices.filter(dev => {
       const devUser = dev.jid.split('@')[0].split(':')[0];
