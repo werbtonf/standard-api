@@ -1,7 +1,7 @@
 import { connectWA } from '../core/transport/client.js';
 import { initAuthCreds, signPreKeys, normalizeCreds } from '../core/pairing/auth.js';
 import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
-import { readFile, writeFile, unlink, rm } from 'node:fs/promises';
+import { readFile, writeFile, unlink, rm, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import QRCode from 'qrcode';
 import { logger } from '../utils/logger.js';
@@ -167,7 +167,9 @@ export class WhatsAppInstance {
     this.isSaving = true;
     try {
       if (this.creds) {
-        await writeFile(this.sessionFile, JSON.stringify(this.creds, null, 2));
+        const tmpFile = `${this.sessionFile}.tmp`;
+        await writeFile(tmpFile, JSON.stringify(this.creds, null, 2));
+        await rename(tmpFile, this.sessionFile);
       }
     } finally {
       this.isSaving = false;
@@ -192,6 +194,13 @@ export class WhatsAppInstance {
         normalizeCreds(this.creds);
       } catch (e) {
         console.error(`[${this.name}] Erro ao ler sessão existente:`, e.message);
+        try {
+          const corruptFile = `${this.sessionFile}.corrupt-${Date.now()}`;
+          await rename(this.sessionFile, corruptFile);
+          console.error(`[${this.name}] Sessão corrompida preservada em ${corruptFile}. Gerando novo par de chaves.`);
+        } catch (e2) {
+          console.error(`[${this.name}] Não foi possível preservar a sessão corrompida:`, e2.message);
+        }
         this.creds = initAuthCreds();
         this.creds = await signPreKeys(this.creds);
         await this.saveCreds();
