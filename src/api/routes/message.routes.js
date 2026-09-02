@@ -193,4 +193,103 @@ export default async function messageRoutes(fastify, options) {
       };
     }
   });
+
+  // Alias para sendText (compatibilidade Evolution/Baileys)
+  fastify.post('/message/sendText/:instanceName', async (req, rep) => {
+    return fastify.inject({
+      method: 'POST',
+      url: `/message/send-text/${req.params.instanceName}`,
+      headers: req.headers,
+      payload: req.body
+    }).then(res => rep.status(res.statusCode).headers(res.headers).send(res.payload));
+  });
+
+  // Alias para sendMedia (compatibilidade Evolution/Baileys)
+  fastify.post('/message/sendMedia/:instanceName', async (req, rep) => {
+    return fastify.inject({
+      method: 'POST',
+      url: `/message/send-media/${req.params.instanceName}`,
+      headers: req.headers,
+      payload: req.body
+    }).then(res => rep.status(res.statusCode).headers(res.headers).send(res.payload));
+  });
+
+  // Enviar Reação com Emoji
+  const handleReaction = async (request, reply) => {
+    const instanceName = request.params.instanceName || 'default';
+    const body = request.body || {};
+    const key = body.key || {};
+    const remoteJid = key.remoteJid || body.remoteJid || body.number || body.jid;
+    const messageId = key.id || body.messageId || body.id;
+    const fromMe = key.fromMe !== undefined ? key.fromMe : (body.fromMe || false);
+    const emoji = body.reaction || body.emoji || body.text || '';
+
+    if (!remoteJid || !messageId) {
+      reply.status(400);
+      return { error: 'Os campos "remoteJid" e "messageId" são obrigatórios.' };
+    }
+
+    try {
+      const instance = manager.getInstance(instanceName);
+      const result = await instance.sendReaction(remoteJid, messageId, emoji, fromMe);
+      return {
+        status: 'SUCCESS',
+        instanceName,
+        messageId: result.key?.id,
+        reaction: emoji
+      };
+    } catch (err) {
+      reply.status(500);
+      return { status: 'ERROR', error: err.message };
+    }
+  };
+  fastify.post('/message/send-reaction/:instanceName', { schema: { tags: ['Messages'], summary: 'Enviar Reação com Emoji' } }, handleReaction);
+  fastify.post('/message/sendReaction/:instanceName', handleReaction);
+
+  // Apagar Mensagem para Todos (Revoke)
+  const handleDeleteMessage = async (request, reply) => {
+    const instanceName = request.params.instanceName || 'default';
+    const body = request.body || {};
+    const remoteJid = body.remoteJid || body.jid || body.number;
+    const messageId = body.id || body.messageId;
+    const fromMe = body.fromMe !== undefined ? body.fromMe : true;
+
+    if (!remoteJid || !messageId) {
+      reply.status(400);
+      return { error: 'Os campos "remoteJid" e "id" são obrigatórios.' };
+    }
+
+    try {
+      const instance = manager.getInstance(instanceName);
+      const result = await instance.deleteMessage(remoteJid, messageId, fromMe);
+      return {
+        status: 'SUCCESS',
+        instanceName,
+        messageId: result.key?.id,
+        deleted: true
+      };
+    } catch (err) {
+      reply.status(500);
+      return { status: 'ERROR', error: err.message };
+    }
+  };
+  fastify.delete('/message/delete/:instanceName', { schema: { tags: ['Messages'], summary: 'Apagar Mensagem para Todos' } }, handleDeleteMessage);
+  fastify.delete('/chat/deleteMessageForEveryone/:instanceName', handleDeleteMessage);
+
+  // Confirmar Leitura (Read Receipt / Check Azul)
+  const handleMarkAsRead = async (request, reply) => {
+    const instanceName = request.params.instanceName || 'default';
+    const body = request.body || {};
+    const readMessages = body.readMessages || body.messages || [body];
+
+    try {
+      const instance = manager.getInstance(instanceName);
+      return await instance.markMessageAsRead(readMessages);
+    } catch (err) {
+      reply.status(500);
+      return { status: 'ERROR', error: err.message };
+    }
+  };
+  fastify.post('/chat/markMessageAsRead/:instanceName', { schema: { tags: ['Messages'], summary: 'Confirmar Leitura de Mensagens' } }, handleMarkAsRead);
+  fastify.post('/message/mark-read/:instanceName', handleMarkAsRead);
 }

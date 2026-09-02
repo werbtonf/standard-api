@@ -558,6 +558,19 @@ export async function connectWA(options = {}) {
     }
   };
 
+  const sendPresence = async (presenceType, jid = null) => {
+    const node = {
+      tag: 'presence',
+      attrs: {
+        type: presenceType || 'available'
+      }
+    };
+    if (jid) {
+      node.attrs.to = normalizeJid(jid);
+    }
+    await conn.sock.sendNode(node);
+  };
+
   const logout = async () => {
     const jid = currentCreds?.me?.id;
     if (jid && conn?.query) {
@@ -597,6 +610,7 @@ export async function connectWA(options = {}) {
     sendMessage,
     sendMedia,
     sendReceipt,
+    sendPresence,
     checkNumber: (number) => checkWhatsAppNumber(conn.query, number),
     checkNumbers: (numbers) => checkWhatsAppNumbers(conn.query, numbers),
     profilePictureUrl: (jidOrNumber, type) => fetchProfilePictureUrl(conn.query, jidOrNumber, type),

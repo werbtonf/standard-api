@@ -56,6 +56,8 @@ export function encodeMessage(msg) {
   } else if (msg.react || msg.reactionMessage) {
     const r = msg.react || msg.reactionMessage;
     parts.push(encodeBytes(46, encodeReactionMessage(r)));
+  } else if (msg.protocolMessage) {
+    parts.push(encodeBytes(28, encodeProtocolMessage(msg.protocolMessage)));
   }
 
   const rawBytes = Buffer.concat(parts);
@@ -180,6 +182,21 @@ function encodeReactionMessage(r) {
   }
   if (r.text !== undefined) parts.push(encodeBytes(2, Buffer.from(r.text, 'utf8')));
   if (r.senderTimestampMs) parts.push(encodeVarint(3, r.senderTimestampMs));
+  return Buffer.concat(parts);
+}
+
+function encodeProtocolMessage(pm) {
+  const parts = [];
+  if (pm.key) {
+    const kp = [];
+    if (pm.key.remoteJid) kp.push(encodeBytes(1, Buffer.from(pm.key.remoteJid, 'utf8')));
+    if (pm.key.fromMe !== undefined) kp.push(encodeVarint(2, pm.key.fromMe ? 1 : 0));
+    if (pm.key.id) kp.push(encodeBytes(3, Buffer.from(pm.key.id, 'utf8')));
+    if (pm.key.participant) kp.push(encodeBytes(4, Buffer.from(pm.key.participant, 'utf8')));
+    parts.push(encodeBytes(1, Buffer.concat(kp)));
+  }
+  if (pm.type !== undefined) parts.push(encodeVarint(2, pm.type));
+  if (pm.ephemeralExpiration !== undefined) parts.push(encodeVarint(4, pm.ephemeralExpiration));
   return Buffer.concat(parts);
 }
 

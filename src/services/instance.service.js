@@ -331,6 +331,83 @@ export class WhatsAppInstance {
     return result;
   }
 
+  async sendReaction(remoteJid, messageId, emoji, fromMe = false) {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const cleanJid = String(remoteJid).trim().includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`;
+    const reactionPayload = {
+      react: {
+        key: {
+          remoteJid: cleanJid,
+          fromMe: Boolean(fromMe),
+          id: messageId
+        },
+        text: emoji || '',
+        senderTimestampMs: Date.now()
+      }
+    };
+    const result = await this.client.sendMessage(cleanJid, reactionPayload);
+    saveMessageToDb(this.name, result);
+    return result;
+  }
+
+  async deleteMessage(remoteJid, messageId, fromMe = true) {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const cleanJid = String(remoteJid).trim().includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`;
+    const protocolPayload = {
+      protocolMessage: {
+        key: {
+          remoteJid: cleanJid,
+          fromMe: Boolean(fromMe),
+          id: messageId
+        },
+        type: 0 // REVOKE
+      }
+    };
+    const result = await this.client.sendMessage(cleanJid, protocolPayload);
+    saveMessageToDb(this.name, result);
+    return result;
+  }
+
+  async sendPresence(presenceType, number = null) {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const targetJid = number ? (String(number).includes('@') ? number : `${number.replace(/[^0-9]/g, '')}@s.whatsapp.net`) : null;
+    await this.client.sendPresence(presenceType, targetJid);
+    return { status: 'SUCCESS', instanceName: this.name, presence: presenceType, target: targetJid || 'all' };
+  }
+
+  async markMessageAsRead(readMessages = []) {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const list = Array.isArray(readMessages) ? readMessages : [readMessages];
+    for (const item of list) {
+      const jid = item.remoteJid || item.jid || item.from;
+      const id = item.id || item.messageId;
+      const participant = item.participant || null;
+      if (jid && id) {
+        await this.client.sendReceipt(jid, participant, id, 'read');
+      }
+    }
+    return { status: 'SUCCESS', instanceName: this.name, markedCount: list.length };
+  }
+
+  async restart() {
+    if (this.client) {
+      try { this.client.close(); } catch (e) {}
+    }
+    this.status = 'connecting';
+    setTimeout(() => {
+      this.init().catch(err => console.error(`[${this.name}] Erro ao reiniciar:`, err.message));
+    }, 1000);
+    return { status: 'RESTARTING', instanceName: this.name };
+  }
+
   async checkNumber(number) {
     if (this.status !== 'open' || !this.client) {
       throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);

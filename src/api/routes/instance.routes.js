@@ -196,4 +196,59 @@ export default async function instanceRoutes(fastify, options) {
   }, async (request) => {
     return await manager.deleteInstance(request.params.instanceName);
   });
+
+  // Alias para Listar Instâncias (fetchInstances)
+  fastify.get('/instance/fetchInstances', async () => {
+    return manager.listInstances();
+  });
+
+  // Obter Estado da Conexão (connectionState)
+  fastify.get('/instance/connectionState/:instanceName', async (request) => {
+    const instance = manager.getInstance(request.params.instanceName);
+    const state = instance.status === 'open' ? 'open' : (instance.status === 'qrcode' ? 'connecting' : 'close');
+    return {
+      instance: {
+        instanceName: instance.name,
+        state
+      }
+    };
+  });
+
+  // Obter QR Code ou Status de Conexão via GET /instance/connect/:instanceName
+  fastify.get('/instance/connect/:instanceName', async (request) => {
+    const instance = manager.getInstance(request.params.instanceName);
+    if (instance.status !== 'open' && !instance.client) {
+      instance.init().catch(() => {});
+    }
+    return {
+      instance: {
+        instanceName: instance.name,
+        state: instance.status
+      },
+      status: instance.status,
+      code: instance.qr,
+      base64: instance.qrBase64,
+      qr: instance.qr,
+      qrBase64: instance.qrBase64
+    };
+  });
+
+  // Reiniciar Instância
+  fastify.post('/instance/restart/:instanceName', async (request) => {
+    const instance = manager.getInstance(request.params.instanceName);
+    return await instance.restart();
+  });
+
+  // Definir Presença Global da Instância
+  fastify.post('/instance/setPresence/:instanceName', async (request) => {
+    const instance = manager.getInstance(request.params.instanceName);
+    const presence = request.body?.presence || 'available';
+    return await instance.sendPresence(presence, null);
+  });
+
+  // Configurações da Instância
+  fastify.post('/settings/set/:instanceName', async (request) => {
+    const instanceName = request.params.instanceName;
+    return { status: 'SUCCESS', instanceName, settings: request.body || {} };
+  });
 }

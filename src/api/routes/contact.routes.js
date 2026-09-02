@@ -312,4 +312,37 @@ export default async function contactRoutes(fastify, options) {
     const offset = parseInt(request.query?.offset || '0', 10);
     return await instance.listContacts(limit, offset);
   });
+
+  // Alias para fetchProfilePictureUrl (compatibilidade Evolution/Baileys)
+  fastify.post('/chat/fetchProfilePictureUrl/:instanceName', async (request) => {
+    const instanceName = request.params.instanceName || 'default';
+    const instance = manager.getInstance(instanceName);
+    const { number, jid } = request.body || {};
+    return await instance.getProfilePicture(number || jid);
+  });
+
+  // Sincronização de Contatos / Chats (findContacts e findChats)
+  fastify.post('/chat/findContacts/:instanceName', async (request) => {
+    const instanceName = request.params.instanceName || 'default';
+    const instance = manager.getInstance(instanceName);
+    const contacts = await instance.listContacts(500, 0);
+    return { contacts };
+  });
+
+  fastify.post('/chat/findChats/:instanceName', async (request) => {
+    const instanceName = request.params.instanceName || 'default';
+    const instance = manager.getInstance(instanceName);
+    const contacts = await instance.listContacts(500, 0);
+    return { chats: contacts };
+  });
+
+  // Definir Presença em Chat Individual (digitando / gravando áudio)
+  fastify.post('/chat/sendPresence/:instanceName', async (request) => {
+    const instanceName = request.params.instanceName || 'default';
+    const instance = manager.getInstance(instanceName);
+    const body = request.body || {};
+    const presence = body.presence || 'composing';
+    const number = body.number || body.jid || body.remoteJid;
+    return await instance.sendPresence(presence, number);
+  });
 }
