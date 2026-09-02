@@ -109,11 +109,20 @@ export async function connectWA(options = {}) {
     let keepAliveReq;
     let pairResolve;
     const queries = new Map();
+    let lastDateRecv = Date.now();
 
     const startKeepAlive = () => {
       if (keepAliveReq) return;
       keepAliveReq = setInterval(() => {
         if (!sock.isOpen) return;
+        const diff = Date.now() - lastDateRecv;
+        if (diff > keepAliveIntervalMs + 15000) {
+          console.warn(`[keepAlive] Conexao inativa ha ${Math.round(diff / 1000)}s. Reconectando...`);
+          clearInterval(keepAliveReq);
+          keepAliveReq = null;
+          reconnect();
+          return;
+        }
         query({ tag: 'iq', attrs: { id: generateMessageTag(), to: S_WHATSAPP_NET, type: 'get', xmlns: 'w:p' }, content: [{ tag: 'ping', attrs: {} }] }).catch(() => {});
       }, keepAliveIntervalMs);
     };
@@ -231,6 +240,15 @@ export async function connectWA(options = {}) {
           isAuthenticated = true;
           ev.emit('connection.update', { connection: 'open' });
           startKeepAlive();
+          query({
+            tag: 'iq',
+            attrs: {
+              to: S_WHATSAPP_NET,
+              xmlns: 'passive',
+              type: 'set'
+            },
+            content: [{ tag: 'active', attrs: {} }]
+          }).catch((err) => console.warn('[passive active fail]', err.message));
           break;
         case 'failure':
           const failReason = node.attrs.reason || 'unknown';
@@ -386,6 +404,7 @@ export async function connectWA(options = {}) {
     await noise.finishInit();
 
     sock.on('frame', (frameBuf) => {
+      lastDateRecv = Date.now();
       (async () => {
         try {
           const node = await decodeBinaryNode(frameBuf);
