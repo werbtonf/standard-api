@@ -1,6 +1,7 @@
 import libsignal from 'libsignal';
 import { Curve, randomBytes } from './crypto.js';
 import { KEY_BUNDLE_TYPE } from './auth.js';
+import { logger } from './logger.js';
 
 export const generateSignalPubKey = (pubKey) => {
   if (!pubKey) return pubKey;
@@ -337,7 +338,7 @@ export async function fetchPreKeys(query, devicesList, repository) {
   };
 
   try {
-    const result = await query(iq, 5000);
+    const result = await query(iq, 10000);
     const listNode = (result.content || []).find(c => c && c.tag === 'list');
     if (!listNode) return;
 
@@ -381,6 +382,235 @@ export async function fetchPreKeys(query, devicesList, repository) {
       await repository.injectSession(jid, sessionBundle);
     }
   } catch (err) {
-    console.warn('[fetchPreKeys] Falha no lote de pré-chaves:', err.message);
+    logger.debug('prekeys', `Busca em lote de pre-chaves: ${err.message}`);
   }
 }
+
+/**
+ * Verifica se um número de telefone está cadastrado no WhatsApp e retorna seu JID canônico.
+ */
+export async function checkWhatsAppNumber(query, number) {
+  const formattedPhone = formatPhoneNumber(number);
+  const phoneWithPlus = '+' + formattedPhone;
+
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
+      content: [
+        {
+          tag: 'usync',
+          attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
+          content: [
+            {
+              tag: 'query',
+              attrs: {},
+              content: [
+                { tag: 'contact', attrs: {} },
+                { tag: 'status', attrs: {} },
+                { tag: 'devices', attrs: { version: '2' } }
+              ]
+            },
+            {
+              tag: 'list',
+              attrs: {},
+              content: [
+                { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: phoneWithPlus }] }
+              ]
+            }
+          ]
+        }
+      ]
+    }, 8000);
+
+    const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
+    const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
+    const userNode = listNode ? (listNode.content || []).find(c => c && c.tag === 'user') : null;
+
+    if (userNode) {
+      const contactNode = (userNode.content || []).find(c => c && c.tag === 'contact');
+      const isRegistered = contactNode ? contactNode.attrs?.type !== 'out' : Boolean(userNode.attrs?.jid);
+      const jid = userNode.attrs?.jid || `${formattedPhone}@s.whatsapp.net`;
+      const statusNode = (userNode.content || []).find(c => c && c.tag === 'status');
+      const statusText = statusNode?.content ? (Buffer.isBuffer(statusNode.content) ? statusNode.content.toString('utf-8') : String(statusNode.content)) : null;
+
+      return {
+        exists: isRegistered,
+        jid: isRegistered ? jid : null,
+        number: formattedPhone,
+        status: statusText
+      };
+    }
+  } catch (err) {
+    logger.debug('contact', `Erro ao verificar numero ${number}: ${err.message}`);
+  }
+
+  return {
+    exists: false,
+    jid: null,
+    number: formattedPhone,
+    status: null
+  };
+}
+
+/**
+ * Obtém a URL da foto de perfil de um contato ou grupo no WhatsApp CDN.
+ */
+export async function fetchProfilePictureUrl(query, jidOrNumber, type = 'image') {
+  let jid = String(jidOrNumber).trim();
+  if (!jid.includes('@')) {
+    const formatted = formatPhoneNumber(jid);
+    jid = `${formatted}@s.whatsapp.net`;
+  }
+
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: {
+        target: jid,
+        to: '@s.whatsapp.net',
+        type: 'get',
+        xmlns: 'w:profile:picture'
+      },
+      content: [
+        {
+          tag: 'picture',
+          attrs: { type: type === 'preview' ? 'preview' : 'image', query: 'url' }
+        }
+      ]
+    }, 8000);
+
+    const pictureNode = (res.content || []).find(c => c && c.tag === 'picture');
+    return pictureNode?.attrs?.url || null;
+  } catch (err) {
+    logger.debug('contact', `Foto de perfil nao disponivel para ${jid}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Obtém o status (Recado / Sobre) de um contato.
+ */
+export async function fetchContactStatus(query, jidOrNumber) {
+  let jid = String(jidOrNumber).trim();
+  if (!jid.includes('@')) {
+    const formatted = formatPhoneNumber(jid);
+    jid = `${formatted}@s.whatsapp.net`;
+  }
+
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: {
+        to: '@s.whatsapp.net',
+        type: 'get',
+        xmlns: 'status'
+      },
+      content: [
+        {
+          tag: 'status',
+          attrs: {},
+          content: [{ tag: 'user', attrs: { jid } }]
+        }
+      ]
+    }, 8000);
+
+    const statusNode = (res.content || []).find(c => c && c.tag === 'status');
+    const userNode = statusNode ? (statusNode.content || []).find(c => c && c.tag === 'user') : null;
+    const text = userNode?.content
+      ? (Buffer.isBuffer(userNode.content) ? userNode.content.toString('utf-8') : String(userNode.content))
+      : (statusNode?.content ? (Buffer.isBuffer(statusNode.content) ? statusNode.content.toString('utf-8') : String(statusNode.content)) : null);
+    const setAt = userNode?.attrs?.t ? new Date(+userNode.attrs.t * 1000).toISOString() : null;
+
+    return {
+      jid,
+      status: text,
+      setAt
+    };
+  } catch (err) {
+    logger.debug('contact', `Status nao disponivel para ${jid}: ${err.message}`);
+    return { jid, status: null, setAt: null };
+  }
+}
+
+/**
+ * Bloqueia ou desbloqueia um contato no WhatsApp.
+ */
+export async function updateBlockStatus(query, jidOrNumber, action = 'block') {
+  let jid = String(jidOrNumber).trim();
+  if (!jid.includes('@')) {
+    const formatted = formatPhoneNumber(jid);
+    jid = `${formatted}@s.whatsapp.net`;
+  }
+
+  await query({
+    tag: 'iq',
+    attrs: {
+      xmlns: 'blocklist',
+      to: '@s.whatsapp.net',
+      type: 'set'
+    },
+    content: [
+      {
+        tag: 'item',
+        attrs: {
+          action: action === 'unblock' ? 'unblock' : 'block',
+          jid
+        }
+      }
+    ]
+  }, 8000);
+
+  return {
+    jid,
+    action: action === 'unblock' ? 'unblock' : 'block',
+    status: 'SUCCESS'
+  };
+}
+
+/**
+ * Lista todos os contatos bloqueados na conta.
+ */
+export async function fetchBlocklist(query) {
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: {
+        xmlns: 'blocklist',
+        to: '@s.whatsapp.net',
+        type: 'get'
+      }
+    }, 8000);
+
+    const listNode = (res.content || []).find(c => c && c.tag === 'list');
+    const items = listNode ? (listNode.content || []).filter(c => c && c.tag === 'item') : [];
+    return items.map(item => item.attrs?.jid).filter(Boolean);
+  } catch (err) {
+    logger.debug('contact', `Erro ao buscar lista de bloqueados: ${err.message}`);
+    return [];
+  }
+}
+
+/**
+ * Atualiza o status/recado do próprio perfil da instância.
+ */
+export async function updateProfileStatus(query, statusText) {
+  await query({
+    tag: 'iq',
+    attrs: {
+      to: '@s.whatsapp.net',
+      type: 'set',
+      xmlns: 'status'
+    },
+    content: [
+      {
+        tag: 'status',
+        attrs: {},
+        content: Buffer.from(String(statusText), 'utf-8')
+      }
+    ]
+  }, 8000);
+
+  return { status: statusText, updated: true };
+}
+

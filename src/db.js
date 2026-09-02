@@ -55,12 +55,18 @@ export async function initDatabase() {
         instance_name VARCHAR(100) NOT NULL,
         name VARCHAR(255),
         push_name VARCHAR(255),
+        profile_picture_url TEXT,
+        status_text TEXT,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (jid, instance_name)
       );
 
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS profile_picture_url TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS status_text TEXT;
+
       CREATE INDEX IF NOT EXISTS idx_messages_instance ON messages(instance_name);
       CREATE INDEX IF NOT EXISTS idx_messages_remote ON messages(remote_jid);
+      CREATE INDEX IF NOT EXISTS idx_contacts_instance ON contacts(instance_name);
     `);
 
     client.release();
@@ -123,12 +129,53 @@ export async function upsertInstanceInDb(instanceName, data = {}) {
   }
 }
 
+export async function upsertContactInDb(instanceName, contactData = {}) {
+  if (!isConnected || !pool) return;
+  try {
+    const { jid, name, pushName, profilePictureUrl, statusText } = contactData;
+    if (!jid) return;
+    await pool.query(
+      `INSERT INTO contacts (jid, instance_name, name, push_name, profile_picture_url, status_text, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+       ON CONFLICT (jid, instance_name) DO UPDATE SET
+         name = COALESCE($3, contacts.name),
+         push_name = COALESCE($4, contacts.push_name),
+         profile_picture_url = COALESCE($5, contacts.profile_picture_url),
+         status_text = COALESCE($6, contacts.status_text),
+         updated_at = CURRENT_TIMESTAMP`,
+      [jid, instanceName, name || null, pushName || null, profilePictureUrl || null, statusText || null]
+    );
+  } catch (e) {
+    logger.debug('db', `Erro ao salvar contato no DB: ${e.message}`);
+  }
+}
+
+export async function listContactsFromDb(instanceName, limit = 50, offset = 0) {
+  if (!isConnected || !pool) return [];
+  try {
+    const res = await pool.query(
+      `SELECT jid, instance_name, name, push_name, profile_picture_url, status_text, updated_at
+       FROM contacts
+       WHERE instance_name = $1
+       ORDER BY updated_at DESC
+       LIMIT $2 OFFSET $3`,
+      [instanceName, limit, offset]
+    );
+    return res.rows;
+  } catch (e) {
+    logger.debug('db', `Erro ao listar contatos do DB: ${e.message}`);
+    return [];
+  }
+}
+
 export async function deleteInstanceFromDb(instanceName) {
   if (!isConnected || !pool) return;
   try {
     await pool.query('DELETE FROM instances WHERE name = $1', [instanceName]);
   } catch (e) {
-    console.warn('[db deleteInstance error]', e.message);
+    logger.debug('db', `Erro ao deletar instancia do DB: ${e.message}`);
   }
 }
+
+
 

@@ -6,7 +6,18 @@ import { encodeBinaryNode, decodeBinaryNode } from './wabinary.js';
 import { encodeHandshakeMessage, decodeHandshakeMessage, encodeADVSignedDeviceIdentity } from './proto.js';
 import { signPreKeys, normalizeCreds, buildRegistrationPayload, buildLoginPayload, buildPairingQRData } from './auth.js';
 import { configureSuccessfulPairing } from './pairing.js';
-import { makeSignalRepository, fetchPreKeys, usyncUser, jidDecode } from './signal.js';
+import {
+  makeSignalRepository,
+  fetchPreKeys,
+  usyncUser,
+  jidDecode,
+  checkWhatsAppNumber,
+  fetchProfilePictureUrl,
+  fetchContactStatus,
+  updateBlockStatus,
+  fetchBlocklist,
+  updateProfileStatus
+} from './signal.js';
 import { encodeMessage, decodeMessage } from './messages.js';
 import { prepareMediaMessage } from './media.js';
 import { logger } from './logger.js';
@@ -561,6 +572,12 @@ export async function connectWA(options = {}) {
     sendMessage,
     sendMedia,
     sendReceipt,
+    checkNumber: (number) => checkWhatsAppNumber(conn.query, number),
+    profilePictureUrl: (jidOrNumber, type) => fetchProfilePictureUrl(conn.query, jidOrNumber, type),
+    fetchStatus: (jidOrNumber) => fetchContactStatus(conn.query, jidOrNumber),
+    updateBlockStatus: (jidOrNumber, action) => updateBlockStatus(conn.query, jidOrNumber, action),
+    fetchBlocklist: () => fetchBlocklist(conn.query),
+    updateProfileStatus: (statusText) => updateProfileStatus(conn.query, statusText),
     logout,
     signal: signalRepo,
     close: () => conn.close()

@@ -45,6 +45,7 @@ await fastify.register(swagger, {
     tags: [
       { name: 'Instance', description: 'Gerenciamento de Múltiplas Instâncias (Criar, Listar, Conectar, QR Code, Deletar)' },
       { name: 'Messages', description: 'Envio de Mensagens de Texto e Mídias (Imagens, Áudios/PTT, Documentos, Vídeos, Stickers)' },
+      { name: 'Contact', description: 'Consulta de Números no WhatsApp, Foto de Perfil, Recado/Bio e Bloqueio' },
       { name: 'Webhook', description: 'Configuração de Webhooks para Recepção de Eventos em Tempo Real' }
     ]
   }
@@ -896,6 +897,341 @@ fastify.get('/webhook/find', {
 }, async () => {
   const instance = manager.getInstance('default');
   return instance.getWebhook();
+});
+
+// ==========================================
+// 4. ROTAS DO MÓDULO DE CONTATOS
+// ==========================================
+
+// Verificar se número(s) existe(m) no WhatsApp
+fastify.post('/contact/check-number/:instanceName', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Verificar Número no WhatsApp',
+    description: 'Verifica se um ou mais números estão registrados no WhatsApp e obtém seus JIDs canônicos.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    body: {
+      type: 'object',
+      properties: {
+        number: { type: 'string', description: 'Número único (ex: 5599991081780)' },
+        numbers: { type: 'array', items: { type: 'string' }, description: 'Lista de múltiplos números para checagem' }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          status: { type: 'string' },
+          instanceName: { type: 'string' },
+          results: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                exists: { type: 'boolean' },
+                jid: { type: 'string', nullable: true },
+                number: { type: 'string' },
+                status: { type: 'string', nullable: true }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const instanceName = request.params.instanceName || 'default';
+  const instance = manager.getInstance(instanceName);
+  const { number, numbers } = request.body || {};
+
+  const targets = Array.isArray(numbers) ? numbers : (number ? [number] : []);
+  if (targets.length === 0) {
+    throw new Error('Forneça "number" (string) ou "numbers" (array de strings).');
+  }
+
+  const results = [];
+  for (const num of targets) {
+    const res = await instance.checkNumber(num);
+    results.push(res);
+  }
+
+  return {
+    status: 'SUCCESS',
+    instanceName,
+    results
+  };
+});
+
+fastify.post('/contact/check-number', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Verificar Número no WhatsApp (Instância Padrão)'
+  }
+}, async (request) => {
+  const instance = manager.getInstance('default');
+  const { number, numbers } = request.body || {};
+  const targets = Array.isArray(numbers) ? numbers : (number ? [number] : []);
+  if (targets.length === 0) {
+    throw new Error('Forneça "number" (string) ou "numbers" (array de strings).');
+  }
+  const results = [];
+  for (const num of targets) {
+    results.push(await instance.checkNumber(num));
+  }
+  return { status: 'SUCCESS', instanceName: 'default', results };
+});
+
+// Obter Foto de Perfil do Contato
+fastify.post('/contact/profile-picture/:instanceName', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Obter Foto de Perfil do Contato',
+    description: 'Recupera a URL pública direta da foto de perfil de um contato ou grupo no CDN do WhatsApp.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    body: {
+      type: 'object',
+      required: ['number'],
+      properties: {
+        number: { type: 'string', description: 'Número do contato ou JID (ex: 5599991081780 ou 55...@s.whatsapp.net)' },
+        type: { type: 'string', enum: ['image', 'preview'], default: 'image', description: 'Alta resolução (image) ou miniatura (preview)' }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          instanceName: { type: 'string' },
+          number: { type: 'string' },
+          profilePictureUrl: { type: 'string', nullable: true }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const instanceName = request.params.instanceName || 'default';
+  const instance = manager.getInstance(instanceName);
+  const { number, type } = request.body;
+  return await instance.getProfilePicture(number, type);
+});
+
+fastify.get('/contact/profile-picture/:instanceName/:number', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Obter Foto de Perfil por URL'
+  }
+}, async (request) => {
+  const { instanceName, number } = request.params;
+  const instance = manager.getInstance(instanceName);
+  return await instance.getProfilePicture(number);
+});
+
+// Obter Status / Recado / Bio do Contato
+fastify.post('/contact/status/:instanceName', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Obter Status/Recado do Contato',
+    description: 'Consulta o texto de "Sobre" / Recado do perfil de um contato.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    body: {
+      type: 'object',
+      required: ['number'],
+      properties: {
+        number: { type: 'string', description: 'Número ou JID do contato' }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          instanceName: { type: 'string' },
+          jid: { type: 'string' },
+          status: { type: 'string', nullable: true },
+          setAt: { type: 'string', nullable: true }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const instanceName = request.params.instanceName || 'default';
+  const instance = manager.getInstance(instanceName);
+  const { number } = request.body;
+  return await instance.getContactStatus(number);
+});
+
+fastify.get('/contact/status/:instanceName/:number', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Obter Status/Recado por URL'
+  }
+}, async (request) => {
+  const { instanceName, number } = request.params;
+  const instance = manager.getInstance(instanceName);
+  return await instance.getContactStatus(number);
+});
+
+// Bloquear ou Desbloquear Contato
+fastify.post('/contact/block/:instanceName', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Bloquear / Desbloquear Contato',
+    description: 'Bloqueia ou desbloqueia um contato no WhatsApp da instância.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    body: {
+      type: 'object',
+      required: ['number'],
+      properties: {
+        number: { type: 'string', description: 'Número ou JID do contato' },
+        action: { type: 'string', enum: ['block', 'unblock'], default: 'block' }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          instanceName: { type: 'string' },
+          jid: { type: 'string' },
+          action: { type: 'string' },
+          status: { type: 'string' }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const instanceName = request.params.instanceName || 'default';
+  const instance = manager.getInstance(instanceName);
+  const { number, action } = request.body;
+  return await instance.blockContact(number, action || 'block');
+});
+
+// Obter Lista de Contatos Bloqueados
+fastify.get('/contact/blocklist/:instanceName', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Listar Contatos Bloqueados',
+    description: 'Retorna a lista de todos os contatos bloqueados na conta do WhatsApp.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          instanceName: { type: 'string' },
+          total: { type: 'integer' },
+          blocklist: { type: 'array', items: { type: 'string' } }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const instanceName = request.params.instanceName || 'default';
+  const instance = manager.getInstance(instanceName);
+  return await instance.getBlocklist();
+});
+
+// Atualizar Status / Recado do Próprio Perfil
+fastify.post('/contact/update-profile-status/:instanceName', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Atualizar Recado do Próprio Perfil',
+    description: 'Altera o status/recado do WhatsApp da instância conectada.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    body: {
+      type: 'object',
+      required: ['status'],
+      properties: {
+        status: { type: 'string', description: 'Novo texto de status/recado' }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          instanceName: { type: 'string' },
+          status: { type: 'string' },
+          updated: { type: 'boolean' }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const instanceName = request.params.instanceName || 'default';
+  const instance = manager.getInstance(instanceName);
+  const { status } = request.body;
+  return await instance.updateProfileStatus(status);
+});
+
+// Listar Contatos Salvos no PostgreSQL
+fastify.get('/contact/list/:instanceName', {
+  schema: {
+    tags: ['Contact'],
+    summary: 'Listar Contatos Salvos no Banco',
+    description: 'Retorna os contatos registrados e salvos no PostgreSQL para a instância.',
+    params: {
+      type: 'object',
+      properties: {
+        instanceName: { type: 'string', default: 'default' }
+      }
+    },
+    querystring: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', default: 50 },
+        offset: { type: 'integer', default: 0 }
+      }
+    },
+    response: {
+      200: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            jid: { type: 'string' },
+            instance_name: { type: 'string' },
+            name: { type: 'string', nullable: true },
+            push_name: { type: 'string', nullable: true },
+            profile_picture_url: { type: 'string', nullable: true },
+            status_text: { type: 'string', nullable: true },
+            updated_at: { type: 'string' }
+          }
+        }
+      }
+    }
+  }
+}, async (request) => {
+  const instanceName = request.params.instanceName || 'default';
+  const instance = manager.getInstance(instanceName);
+  const limit = parseInt(request.query?.limit || '50', 10);
+  const offset = parseInt(request.query?.offset || '0', 10);
+  return await instance.listContacts(limit, offset);
 });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);

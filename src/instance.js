@@ -5,7 +5,7 @@ import { readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import QRCode from 'qrcode';
 import { logger } from './logger.js';
-import { saveMessageToDb, upsertInstanceInDb, deleteInstanceFromDb } from './db.js';
+import { saveMessageToDb, upsertInstanceInDb, deleteInstanceFromDb, upsertContactInDb, listContactsFromDb } from './db.js';
 
 export class WhatsAppInstance {
   constructor(name, options = {}) {
@@ -329,6 +329,96 @@ export class WhatsAppInstance {
     logger.outgoing(this.name, `${mediaType} entregue com sucesso! (ID: ${result.key.id})`);
     saveMessageToDb(this.name, result);
     return result;
+  }
+
+  async checkNumber(number) {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const result = await this.client.checkNumber(number);
+    if (result.exists && result.jid) {
+      upsertContactInDb(this.name, {
+        jid: result.jid,
+        statusText: result.status
+      });
+    }
+    return result;
+  }
+
+  async getProfilePicture(number, type = 'image') {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const url = await this.client.profilePictureUrl(number, type);
+    const jid = String(number).includes('@') ? number : `${number}@s.whatsapp.net`;
+    if (url) {
+      upsertContactInDb(this.name, {
+        jid,
+        profilePictureUrl: url
+      });
+    }
+    return {
+      instanceName: this.name,
+      number,
+      profilePictureUrl: url
+    };
+  }
+
+  async getContactStatus(number) {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const result = await this.client.fetchStatus(number);
+    if (result.status && result.jid) {
+      upsertContactInDb(this.name, {
+        jid: result.jid,
+        statusText: result.status
+      });
+    }
+    return {
+      instanceName: this.name,
+      ...result
+    };
+  }
+
+  async blockContact(number, action = 'block') {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const result = await this.client.updateBlockStatus(number, action);
+    logger.instance(this.name, `Contato ${number} foi ${action === 'unblock' ? 'desbloqueado' : 'bloqueado'}.`);
+    return {
+      instanceName: this.name,
+      ...result
+    };
+  }
+
+  async getBlocklist() {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const list = await this.client.fetchBlocklist();
+    return {
+      instanceName: this.name,
+      total: list.length,
+      blocklist: list
+    };
+  }
+
+  async updateProfileStatus(statusText) {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const result = await this.client.updateProfileStatus(statusText);
+    logger.instance(this.name, `Recado do perfil atualizado para: "${statusText}"`);
+    return {
+      instanceName: this.name,
+      ...result
+    };
+  }
+
+  async listContacts(limit = 50, offset = 0) {
+    return await listContactsFromDb(this.name, limit, offset);
   }
 
   getStatus() {
