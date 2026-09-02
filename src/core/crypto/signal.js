@@ -303,6 +303,8 @@ export async function fetchPreKeys(query, devicesList, repository) {
 
   if (itemsToFetch.length === 0) return;
 
+  console.log(`[fetchPreKeys] Buscando pre-chaves para ${itemsToFetch.length} dispositivo(s): ${itemsToFetch.map(i => i.jid).join(', ')}`);
+
   const S_WHATSAPP_NET = '@s.whatsapp.net';
   const iq = {
     tag: 'iq',
@@ -335,11 +337,15 @@ export async function fetchPreKeys(query, devicesList, repository) {
   };
 
   try {
-    const result = await query(iq, 10000);
+    const result = await query(iq, 5000);
     const listNode = (result.content || []).find(c => c && c.tag === 'list');
-    if (!listNode) return;
+    if (!listNode) {
+      console.log('[fetchPreKeys] Resposta sem nó list, retornando.');
+      return;
+    }
 
     const userNodes = (listNode.content || []).filter(c => c && c.tag === 'user');
+    console.log(`[fetchPreKeys] Recebidas pre-chaves de ${userNodes.length} dispositivo(s).`);
     for (const userNode of userNodes) {
       const jid = userNode.attrs.jid;
       if (!jid) continue;
@@ -377,9 +383,10 @@ export async function fetchPreKeys(query, devicesList, repository) {
       }
 
       await repository.injectSession(jid, sessionBundle);
+      console.log(`[fetchPreKeys] Sessão injetada para ${jid}`);
     }
   } catch (err) {
-    logger.debug('prekeys', `Busca em lote de pre-chaves: ${err.message}`);
+    console.warn(`[fetchPreKeys] Falha na busca de pre-chaves: ${err.message}`);
   }
 }
 

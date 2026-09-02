@@ -350,11 +350,13 @@ export async function connectWA(options = {}) {
               const participant = node.attrs.participant;
               const senderJid = participant || from;
               const senderPn = node.attrs.sender_pn || node.attrs.recipient_pn || node.attrs.participant_pn;
+              console.log(`[INCOMING] from=${from} participant=${participant || 'none'} senderPn=${senderPn || 'none'} id=${node.attrs.id}`);
               const encNode = getBinaryNodeChild(node, 'enc');
               let decodedMsg = null;
 
               if (encNode && Buffer.isBuffer(encNode.content)) {
                 const encType = encNode.attrs.type;
+                console.log(`[INCOMING] enc type=${encType} length=${encNode.content.length} senderJid=${senderJid}`);
                 try {
                   const decrypted = await signalRepo.decryptMessage({
                     jid: senderJid,
@@ -362,10 +364,35 @@ export async function connectWA(options = {}) {
                     ciphertext: encNode.content
                   });
                   decodedMsg = decodeMessage(decrypted);
+                  console.log(`[INCOMING] Decifrado com sucesso! keys=${Object.keys(decodedMsg || {}).join(',')}`);
                 } catch (err) {
-                  console.error('[message decrypt fail]', err.message);
-                  decodedMsg = { rawError: err.message };
+                  console.error('[message decrypt fail]', senderJid, err.message);
+                  // Try decrypting with senderPn JID if different from senderJid
+                  if (senderPn) {
+                    const altJid = senderPn.includes('@') ? senderPn : `${senderPn.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+                    if (altJid !== senderJid) {
+                      console.log(`[INCOMING] Tentando decifrar com JID alternativo: ${altJid}`);
+                      try {
+                        const decrypted = await signalRepo.decryptMessage({
+                          jid: altJid,
+                          type: encType,
+                          ciphertext: encNode.content
+                        });
+                        decodedMsg = decodeMessage(decrypted);
+                        console.log(`[INCOMING] Decifrado com JID alternativo! keys=${Object.keys(decodedMsg || {}).join(',')}`);
+                      } catch (err2) {
+                        console.error('[message decrypt fail alt]', altJid, err2.message);
+                        decodedMsg = { rawError: err.message };
+                      }
+                    } else {
+                      decodedMsg = { rawError: err.message };
+                    }
+                  } else {
+                    decodedMsg = { rawError: err.message };
+                  }
                 }
+              } else {
+                console.log(`[INCOMING] Sem nó enc na mensagem de ${from}`);
               }
 
               if (decodedMsg && !decodedMsg.rawError) {
@@ -536,13 +563,27 @@ export async function connectWA(options = {}) {
     const { jid: canonicalJid, devices } = await usyncUser(conn.query, jid);
     const messageBytes = encodeMessage(content);
 
+    console.log(`[sendMessage] canonicalJid=${canonicalJid} devices=${JSON.stringify(devices.map(d => ({ id: d.id, jid: d.jid, keyIndex: d.keyIndex })))}`);
+
+    // Filter out our own companion devices (don't send to self)
+    const ownJid = currentCreds?.me?.id;
+    const ownUser = ownJid ? ownJid.split('@')[0].split(':')[0] : null;
+    const filteredDevices = devices.filter(dev => {
+      const devUser = dev.jid.split('@')[0].split(':')[0];
+      if (ownUser && devUser === ownUser) {
+        console.log(`[sendMessage] Ignorando dispositivo próprio: ${dev.jid}`);
+        return false;
+      }
+      return true;
+    });
+
     // Busca pré-chaves em lote para todos os dispositivos usando key-index quando necessário
-    await fetchPreKeys(conn.query, devices, signalRepo);
+    await fetchPreKeys(conn.query, filteredDevices, signalRepo);
 
     const participantNodes = [];
     let shouldIncludeDeviceIdentity = false;
 
-    for (const dev of devices) {
+    for (const dev of filteredDevices) {
       const deviceJid = dev.jid;
       const hasSess = await signalRepo.hasSession(deviceJid);
       if (!hasSess) {
@@ -551,6 +592,7 @@ export async function connectWA(options = {}) {
             await fetchPreKeys(conn.query, [dev], signalRepo);
           } catch (e) {}
         } else {
+          console.log(`[sendMessage] Sem sessão para companion ${deviceJid}, pulando.`);
           continue;
         }
       }
