@@ -888,3 +888,26 @@ export async function uploadPreKeys(query, creds, ev, count = 50) {
   }
 }
 
+/**
+ * Atualiza o status/recado do próprio perfil da instância.
+ */
+export async function updateProfileStatus(query, statusText) {
+  await query({
+    tag: 'iq',
+    attrs: {
+      to: '@s.whatsapp.net',
+      type: 'set',
+      xmlns: 'status'
+    },
+    content: [
+      {
+        tag: 'status',
+        attrs: {},
+        content: Buffer.from(String(statusText), 'utf-8')
+      }
+    ]
+  }, 10000);
+
+  return { status: statusText, updated: true };
+}
+
