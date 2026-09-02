@@ -394,6 +394,15 @@ export async function connectWA(options = {}) {
 
               console.log(`[INCOMING] from=${from} participant=${participant || 'none'} senderPn=${senderPn || 'none'} id=${node.attrs.id}`);
 
+              // Eco do próprio número (mensagens que enviamos reaparecem no socket)
+              const myUser = (currentCreds?.me?.id || '').split('@')[0].split(':')[0];
+              const fromIsSelf = !!myUser && (from || '').split('@')[0].split(':')[0] === myUser;
+
+              // Placeholder temporário do servidor ("Aguardando mensagem/Waiting for message"):
+              // eco do nosso envio ainda não confirmado pelo telefone. Não deve ser
+              // tratado como mensagem do cliente no Flowbash.
+              const PLACEHOLDER_RE = /Waiting for (this )?message|Aguardando mensagem|Aguardando esta mensagem/i;
+
               // LID: mapeia para JID de telefone quando possível (usync context=lid)
               let effectiveJid = senderJid;
               if ((senderJid || '').includes('@lid')) {
@@ -512,6 +521,17 @@ export async function connectWA(options = {}) {
 
               let mediaBase64 = null;
               if (decodedMsg && !decodedMsg.rawError) {
+                // Eco do próprio envio com texto-placeholder ("Aguardando mensagem..."):
+                // o servidor ainda não confirmou junto ao telefone. Não eh mensagem de
+                // cliente - emite 'messages.pending' informativo e pinga o resto.
+                if (fromIsSelf) {
+                  const text = String(decodedMsg.conversation || decodedMsg.extendedTextMessage?.text || '').trim();
+                  if (PLACEHOLDER_RE.test(text) || Object.keys(decodedMsg).length === 0) {
+                    console.log(`[INCOMING] eco placeholder do proprio envio ignorado (id=${node.attrs.id})`);
+                    ev.emit('messages.pending', { key: { id: node.attrs.id, remoteJid: from, fromMe: true } });
+                    return;
+                  }
+                }
                 const mediaInfo = getReceivedMediaInfo(decodedMsg);
                 if (mediaInfo) {
                   try {
@@ -528,7 +548,7 @@ export async function connectWA(options = {}) {
                 key: {
                   remoteJid: from,
                   remoteJidAlt: remoteJidAlt || (from.includes('@lid') ? from : undefined),
-                  fromMe: false,
+                  fromMe: fromIsSelf,
                   id: node.attrs.id,
                   participant
                 },
