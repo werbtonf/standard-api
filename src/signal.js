@@ -567,80 +567,122 @@ export async function checkWhatsAppNumber(query, number) {
  * Obtém a URL da foto de perfil de um contato ou grupo no WhatsApp CDN.
  */
 export async function fetchProfilePictureUrl(query, jidOrNumber, type = 'image') {
-  let jid = String(jidOrNumber).trim();
-  if (!jid.includes('@')) {
-    const formatted = formatPhoneNumber(jid);
-    jid = `${formatted}@s.whatsapp.net`;
+  let clean = String(jidOrNumber).trim();
+  const jidsToTry = [];
+
+  if (clean.includes('@')) {
+    jidsToTry.push(clean);
+  } else {
+    const formatted = formatPhoneNumber(clean);
+    jidsToTry.push(`${formatted}@s.whatsapp.net`);
+
+    if (formatted.startsWith('55')) {
+      if (formatted.length === 13 && formatted[4] === '9') {
+        const withoutNine = `55${formatted.slice(2, 4)}${formatted.slice(5)}@s.whatsapp.net`;
+        jidsToTry.push(withoutNine);
+      } else if (formatted.length === 12) {
+        const withNine = `55${formatted.slice(2, 4)}9${formatted.slice(4)}@s.whatsapp.net`;
+        jidsToTry.push(withNine);
+      }
+    }
   }
 
-  try {
-    const res = await query({
-      tag: 'iq',
-      attrs: {
-        target: jid,
-        to: '@s.whatsapp.net',
-        type: 'get',
-        xmlns: 'w:profile:picture'
-      },
-      content: [
-        {
-          tag: 'picture',
-          attrs: { type: type === 'preview' ? 'preview' : 'image', query: 'url' }
-        }
-      ]
-    }, 8000);
+  for (const jid of jidsToTry) {
+    try {
+      const res = await query({
+        tag: 'iq',
+        attrs: {
+          target: jid,
+          to: '@s.whatsapp.net',
+          type: 'get',
+          xmlns: 'w:profile:picture'
+        },
+        content: [
+          {
+            tag: 'picture',
+            attrs: { type: type === 'preview' ? 'preview' : 'image', query: 'url' }
+          }
+        ]
+      }, 8000);
 
-    const pictureNode = (res.content || []).find(c => c && c.tag === 'picture');
-    return pictureNode?.attrs?.url || null;
-  } catch (err) {
-    logger.debug('contact', `Foto de perfil nao disponivel para ${jid}: ${err.message}`);
-    return null;
+      const pictureNode = (res.content || []).find(c => c && c.tag === 'picture');
+      const url = pictureNode?.attrs?.url || null;
+      if (url) return url;
+    } catch (err) {
+      logger.debug('contact', `Foto de perfil nao disponivel para ${jid}: ${err.message}`);
+    }
   }
+
+  return null;
 }
 
 /**
  * Obtém o status (Recado / Sobre) de um contato.
  */
 export async function fetchContactStatus(query, jidOrNumber) {
-  let jid = String(jidOrNumber).trim();
-  if (!jid.includes('@')) {
-    const formatted = formatPhoneNumber(jid);
-    jid = `${formatted}@s.whatsapp.net`;
+  let clean = String(jidOrNumber).trim();
+  const jidsToTry = [];
+
+  if (clean.includes('@')) {
+    jidsToTry.push(clean);
+  } else {
+    const formatted = formatPhoneNumber(clean);
+    jidsToTry.push(`${formatted}@s.whatsapp.net`);
+
+    if (formatted.startsWith('55')) {
+      if (formatted.length === 13 && formatted[4] === '9') {
+        const withoutNine = `55${formatted.slice(2, 4)}${formatted.slice(5)}@s.whatsapp.net`;
+        jidsToTry.push(withoutNine);
+      } else if (formatted.length === 12) {
+        const withNine = `55${formatted.slice(2, 4)}9${formatted.slice(4)}@s.whatsapp.net`;
+        jidsToTry.push(withNine);
+      }
+    }
   }
 
-  try {
-    const res = await query({
-      tag: 'iq',
-      attrs: {
-        to: '@s.whatsapp.net',
-        type: 'get',
-        xmlns: 'status'
-      },
-      content: [
-        {
-          tag: 'status',
-          attrs: {},
-          content: [{ tag: 'user', attrs: { jid } }]
-        }
-      ]
-    }, 8000);
+  for (const jid of jidsToTry) {
+    try {
+      const res = await query({
+        tag: 'iq',
+        attrs: {
+          to: '@s.whatsapp.net',
+          type: 'get',
+          xmlns: 'status'
+        },
+        content: [
+          {
+            tag: 'status',
+            attrs: {},
+            content: [{ tag: 'user', attrs: { jid } }]
+          }
+        ]
+      }, 8000);
 
-    const statusNode = (res.content || []).find(c => c && c.tag === 'status');
-    const userNode = statusNode ? (statusNode.content || []).find(c => c && c.tag === 'user') : null;
-    const text = userNode?.content
-      ? (Buffer.isBuffer(userNode.content) ? userNode.content.toString('utf-8') : String(userNode.content))
-      : (statusNode?.content ? (Buffer.isBuffer(statusNode.content) ? statusNode.content.toString('utf-8') : String(statusNode.content)) : null);
-    const setAt = userNode?.attrs?.t ? new Date(+userNode.attrs.t * 1000).toISOString() : null;
+      const statusNode = (res.content || []).find(c => c && c.tag === 'status');
+      const userNode = statusNode ? (statusNode.content || []).find(c => c && c.tag === 'user') : null;
 
-    return {
-      jid,
-      status: text,
-      setAt
-    };
-  } catch (err) {
-    logger.debug('contact', `Status nao disponivel para ${jid}: ${err.message}`);
-    return { jid, status: null, setAt: null };
+      if (userNode) {
+        const text = userNode.content
+          ? (Buffer.isBuffer(userNode.content) ? userNode.content.toString('utf-8') : String(userNode.content))
+          : '';
+        const setAt = userNode.attrs?.t ? new Date(+userNode.attrs.t * 1000).toISOString() : null;
+
+        return {
+          jid,
+          status: text,
+          setAt
+        };
+      }
+    } catch (err) {
+      logger.debug('contact', `Status nao disponivel para ${jid}: ${err.message}`);
+    }
   }
+
+  return {
+    jid: jidsToTry[0],
+    status: '',
+    setAt: null
+  };
 }
 
 /**
