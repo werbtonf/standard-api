@@ -258,7 +258,9 @@ export class WhatsAppInstance {
     if (!cleanNumber) {
       throw new Error('Número de telefone inválido.');
     }
-    return await this.client.sendMessage(cleanNumber, { text }, options);
+    const result = await this.client.sendMessage(cleanNumber, { text }, options);
+    saveMessageToDb(this.name, result);
+    return result;
   }
 
   async sendMedia(number, mediaOptions, options = {}) {
@@ -278,7 +280,9 @@ export class WhatsAppInstance {
     if (!cleanNumber) {
       throw new Error('Número de telefone inválido.');
     }
-    return await this.client.sendMedia(cleanNumber, { ...mediaOptions, sessionDir: this.sessionDir }, options);
+    const result = await this.client.sendMedia(cleanNumber, mediaOptions, options);
+    saveMessageToDb(this.name, result);
+    return result;
   }
 
   getStatus() {
