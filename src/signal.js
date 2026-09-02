@@ -467,7 +467,9 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
       const isRegistered = contactNode ? contactNode.attrs?.type !== 'out' : Boolean(jid);
 
       // Telefone retornado pelo nó de contato ou JID
-      const contactPhone = contactNode?.content ? String(contactNode.content).replace(/[^0-9]/g, '') : null;
+      const contactPhone = contactNode?.content
+        ? (Buffer.isBuffer(contactNode.content) ? contactNode.content.toString('utf-8') : String(contactNode.content)).replace(/[^0-9]/g, '')
+        : null;
       const jidUser = jid ? jid.split('@')[0].split(':')[0] : null;
 
       const matchedPhone = contactPhone || jidUser;
@@ -485,6 +487,7 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
       }
     }
   } catch (err) {
+    console.error('[checkWhatsAppNumbers ERROR]:', err);
     logger.debug('contact', `Erro ao verificar lote de numeros USync: ${err.message}`);
   }
 
