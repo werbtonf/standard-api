@@ -123,9 +123,13 @@ export class InstanceManager {
 
   async deleteInstance(name) {
     const cleanName = String(name).trim().toLowerCase();
-    const inst = this.instances.get(cleanName);
+    let inst = this.instances.get(cleanName);
     if (!inst) {
-      throw new Error(`Instância "${cleanName}" não encontrada.`);
+      const dir = join(this.baseDir, cleanName);
+      if (!existsSync(dir)) {
+        throw new Error(`Instância "${cleanName}" não encontrada.`);
+      }
+      inst = new WhatsAppInstance(cleanName, { baseDir: this.baseDir });
     }
     await inst.delete();
     this.instances.delete(cleanName);
