@@ -25,6 +25,7 @@ export class WhatsAppInstance {
     this.isSaving = false;
     this.queuedSave = false;
     this.reconnectTimer = null;
+    this.reconnectAttempts = 0;
 
     this.webhook = {
       url: process.env.WEBHOOK_GLOBAL_URL || '',
@@ -233,6 +234,7 @@ export class WhatsAppInstance {
           this.status = 'open';
           this.qr = null;
           this.qrBase64 = null;
+          this.reconnectAttempts = 0;
           logger.instance(this.name, `Conexao estabelecida com sucesso como: ${this.creds.me?.id}`);
         }
 
@@ -244,10 +246,16 @@ export class WhatsAppInstance {
           }
 
           this.status = 'close';
-          logger.warn(this.name, 'Conexao fechada. Tentando reconectar em 3s...');
           if (this.creds?.me) {
+            this.reconnectAttempts += 1;
+            if (this.reconnectAttempts > 10) {
+              logger.warn(this.name, `${this.reconnectAttempts - 1} reconexoes consecutivas sem sucesso. Retry automatico interrompido — chame POST /instance/connect manualmente.`);
+              return;
+            }
+            const delay = Math.min(3000 * Math.pow(2, this.reconnectAttempts - 1), 60000);
+            logger.warn(this.name, `Conexao fechada. Reconectando em ${Math.round(delay / 1000)}s (tentativa ${this.reconnectAttempts}/10)...`);
             clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = setTimeout(() => this.init().catch(() => {}), 3000);
+            this.reconnectTimer = setTimeout(() => this.init().catch(() => {}), delay);
           }
         }
 

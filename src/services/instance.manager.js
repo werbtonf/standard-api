@@ -39,14 +39,30 @@ export class InstanceManager {
   async initAll() {
     if (!existsSync(this.baseDir)) return;
     const entries = readdirSync(this.baseDir, { withFileTypes: true });
-    
+
     const instanceDirs = entries.filter(e => e.isDirectory()).map(e => e.name);
     if (instanceDirs.length === 0) {
-      instanceDirs.push('default');
+      console.log('[manager] Nenhuma instância encontrada; nada para auto-inicializar.');
+      return;
     }
 
     for (const name of instanceDirs) {
       console.log(`[manager] Inicializando instância: "${name}"...`);
+      const sessionFile = join(this.baseDir, name, 'session.json');
+      if (!existsSync(sessionFile)) {
+        console.log(`[manager] Instância "${name}" sem sessão; pulando auto-init.`);
+        continue;
+      }
+      try {
+        const creds = JSON.parse(readFileSync(sessionFile, 'utf8'));
+        if (!creds?.me?.id || !creds?.signedIdentityKey) {
+          console.log(`[manager] Instância "${name}" sem conta validada; pulando auto-init (pareie manualmente via /instance/connect).`);
+          continue;
+        }
+      } catch (e) {
+        console.warn(`[manager] Sessão corrompida em "${name}"; pulando auto-init.`);
+        continue;
+      }
       const inst = new WhatsAppInstance(name, { baseDir: this.baseDir });
       this.instances.set(name, inst);
       await inst.init();
