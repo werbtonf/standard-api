@@ -332,9 +332,11 @@ export async function connectWA(options = {}) {
             let status = 'DELIVERY_ACK';
             if (receiptType === 'read' || receiptType === 'read-self') {
               status = 'READ';
-            } else if (receiptType === 'server-error' || receiptType === 'error' || receiptType === 'retry') {
+            } else if (receiptType === 'server-error' || receiptType === 'error') {
               status = 'ERROR';
             }
+            // receipt type=retry: o servidor vai tentar redelivrar; não marca
+            // falha definitiva (apenas carrega a contagem como informação).
 
             const key = {
               id: receiptId,
