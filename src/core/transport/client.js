@@ -110,7 +110,6 @@ export async function connectWA(options = {}) {
     let isAuthenticated = false;
     let keepAliveReq;
     let pairResolve;
-    let lastPrekeyRotate = 0;
     const queries = new Map();
     let lastDateRecv = Date.now();
 
@@ -445,15 +444,11 @@ export async function connectWA(options = {}) {
                     const msg = String(err.message || '');
                     console.error(`[message decrypt fail] ${jid} ${msg}`);
                     if (/Key used already|never filled|Chain closed|Bad MAC|No matching sessions|Invalid PreKey ID/.test(msg)) {
+                      // Limpa apenas a sessão local; o retry receipt (enviado abaixo
+                      // em falha) instrui o remetente a re-cifrar. NUNCA rotacionar
+                      // prekeys sob erro: muda os ids que o remetente usa e cria um
+                      // loop de Invalid PreKey ID (remetente nunca refaz o fetch).
                       signalRepo.clearSessions(jid);
-                      const now = Date.now();
-                      if (now - lastPrekeyRotate > 60000) {
-                        lastPrekeyRotate = now;
-                        console.log('[signal] rotacionando pre-chaves para recuperar sessao...');
-                        await signPreKeys(creds, 30);
-                        ev.emit('creds.update', {});
-                        uploadPreKeys(conn.query, creds, ev).catch((e) => console.warn('[signal] uploadPreKeys apos rotacao falhou:', e.message));
-                      }
                     }
                     rawErrors.push(err.message);
                     if (i < tryJids.length - 1) {
