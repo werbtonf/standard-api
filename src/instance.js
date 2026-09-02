@@ -4,6 +4,7 @@ import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from '
 import { readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import QRCode from 'qrcode';
+import { logger } from './logger.js';
 import { saveMessageToDb, upsertInstanceInDb, deleteInstanceFromDb } from './db.js';
 
 export class WhatsAppInstance {
@@ -114,11 +115,12 @@ export class WhatsAppInstance {
       timestamp: Math.floor(Date.now() / 1000)
     };
 
+    const startTime = Date.now();
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 6000);
 
-      await fetch(this.webhook.url, {
+      const res = await fetch(this.webhook.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -129,9 +131,11 @@ export class WhatsAppInstance {
         signal: controller.signal
       });
       clearTimeout(timeout);
+      const duration = Date.now() - startTime;
+      logger.webhook(this.name, `Evento "${event}" enviado para ${this.webhook.url} (HTTP ${res.status} - ${duration}ms)`);
     } catch (err) {
-      // Ignora falha de entrega silenciosamente para não travar a instância
-      // console.warn(`[${this.name}] Webhook dispatch error:`, err.message);
+      const duration = Date.now() - startTime;
+      logger.warn(this.name, `Falha ao entregar webhook "${event}" em ${this.webhook.url} (${duration}ms): ${err.message}`);
     }
   }
 
@@ -198,8 +202,11 @@ export class WhatsAppInstance {
           this.qr = update.qr;
           try {
             this.qrBase64 = await QRCode.toDataURL(update.qr, { width: 350, margin: 2 });
+            const terminalQR = await QRCode.toString(update.qr, { type: 'terminal', small: true });
+            logger.auth(this.name, `Novo QR Code gerado. Escaneie no celular ou acesse /instance/qr/${this.name}:`);
+            console.log(`\n${terminalQR}\n`);
           } catch (e) {
-            console.error(`[${this.name}] Erro ao gerar QR base64:`, e.message);
+            logger.error(this.name, 'Erro ao gerar QR Code:', e);
           }
         }
 
@@ -207,18 +214,18 @@ export class WhatsAppInstance {
           this.status = 'open';
           this.qr = null;
           this.qrBase64 = null;
-          console.log(`[${this.name}] Conexao estabelecida como`, this.creds.me?.id);
+          logger.instance(this.name, `Conexao estabelecida com sucesso como: ${this.creds.me?.id}`);
         }
 
         if (update.connection === 'close') {
           if (update.isLoggedOut) {
-            console.log(`[${this.name}] Sessao desconectada/invalidada pelo WhatsApp. Gerando novo par de chaves e QR Code...`);
+            logger.auth(this.name, 'Sessao desconectada/invalidada pelo WhatsApp. Gerando novo par de chaves e QR Code...');
             this.logout().then(() => this.init()).catch(() => {});
             return;
           }
 
           this.status = 'close';
-          console.log(`[${this.name}] Conexao fechada. Tentando reconectar em 3s...`);
+          logger.warn(this.name, 'Conexao fechada. Tentando reconectar em 3s...');
           if (this.creds?.me) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = setTimeout(() => this.init().catch(() => {}), 3000);
@@ -227,6 +234,7 @@ export class WhatsAppInstance {
 
         if (update.connection === 'reconnecting') {
           this.status = 'connecting';
+          logger.instance(this.name, 'Reconectando ao WhatsApp...');
         }
 
         this.dispatchWebhook('connection.update', {
@@ -242,6 +250,11 @@ export class WhatsAppInstance {
         this.dispatchWebhook('messages.upsert', data);
         if (data?.messages) {
           for (const msg of data.messages) {
+            const from = msg.key?.remoteJid || 'desconhecido';
+            const textPreview = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+            const mediaType = Object.keys(msg.message || {})[0];
+            const display = textPreview ? `"${textPreview}"` : `[${mediaType || 'mensagem'}]`;
+            logger.incoming(this.name, `De ${from}: ${display}`);
             saveMessageToDb(this.name, msg);
           }
         }
@@ -286,14 +299,16 @@ export class WhatsAppInstance {
     if (!cleanNumber) {
       throw new Error('Número de telefone inválido.');
     }
+    logger.outgoing(this.name, `Enviando texto para ${cleanNumber}: "${text.slice(0, 50)}${text.length > 50 ? '...' : ''}"`);
     const result = await this.client.sendMessage(cleanNumber, { text }, options);
+    logger.outgoing(this.name, `Texto entregue com sucesso! (ID: ${result.key.id})`);
     saveMessageToDb(this.name, result);
     return result;
   }
 
   async sendMedia(number, mediaOptions, options = {}) {
     if (this.status !== 'open') {
-      console.log(`[${this.name}] Status atual é ${this.status}. Aguardando conexão...`);
+      logger.instance(this.name, `Status atual é ${this.status}. Aguardando conexao...`);
       for (let i = 0; i < 20; i++) {
         await new Promise(r => setTimeout(r, 250));
         if (this.status === 'open') break;
@@ -308,7 +323,10 @@ export class WhatsAppInstance {
     if (!cleanNumber) {
       throw new Error('Número de telefone inválido.');
     }
+    const mediaType = mediaOptions.type || 'midia';
+    logger.outgoing(this.name, `Enviando ${mediaType} para ${cleanNumber}...`);
     const result = await this.client.sendMedia(cleanNumber, mediaOptions, options);
+    logger.outgoing(this.name, `${mediaType} entregue com sucesso! (ID: ${result.key.id})`);
     saveMessageToDb(this.name, result);
     return result;
   }

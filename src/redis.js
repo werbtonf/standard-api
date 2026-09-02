@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { logger } from './logger.js';
 
 let redisClient = null;
 let isConnected = false;
@@ -8,7 +9,7 @@ export async function initRedis() {
   const redisEnabled = process.env.REDIS_ENABLED === 'true' || Boolean(redisUrl);
 
   if (!redisEnabled || !redisUrl) {
-    console.log('[redis] Redis nao configurado ou desabilitado. Operando em modo sem cache distribuido.');
+    logger.redis('Redis nao configurado. Operando sem cache distribuido.');
     return null;
   }
 
@@ -28,11 +29,11 @@ export async function initRedis() {
     });
 
     await redisClient.connect();
-    console.log('[redis] Conectado ao Redis com sucesso.');
+    logger.redis('Conectado ao Redis com sucesso.');
     isConnected = true;
     return redisClient;
   } catch (err) {
-    console.warn('[redis] Nao foi possivel conectar ao Redis:', err.message, '- Operando sem Redis.');
+    logger.warn('redis', 'Nao foi possivel conectar ao Redis: ' + err.message);
     redisClient = null;
     isConnected = false;
     return null;

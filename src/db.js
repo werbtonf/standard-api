@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { logger } from './logger.js';
 
 const { Pool } = pg;
 
@@ -10,7 +11,7 @@ export async function initDatabase() {
   const dbEnabled = process.env.DATABASE_ENABLED === 'true' || Boolean(dbUrl);
 
   if (!dbEnabled || !dbUrl) {
-    console.log('[db] PostgreSQL nao configurado ou desabilitado. Operando em modo de arquivos locais.');
+    logger.db('PostgreSQL nao configurado. Operando em modo de arquivos locais.');
     return null;
   }
 
@@ -23,7 +24,7 @@ export async function initDatabase() {
     });
 
     const client = await pool.connect();
-    console.log('[db] Conectado ao PostgreSQL com sucesso.');
+    logger.db('Conectado ao PostgreSQL com sucesso.');
 
     // Inicializa as tabelas essenciais
     await client.query(`

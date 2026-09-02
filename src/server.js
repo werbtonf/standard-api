@@ -3,21 +3,13 @@ import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { InstanceManager } from './instance.js';
-import { initDatabase } from './db.js';
-import { initRedis } from './redis.js';
+import { initDatabase, isDbConnected } from './db.js';
+import { initRedis, isRedisConnected } from './redis.js';
+import { logger } from './logger.js';
 
 const fastify = Fastify({
-  logger: {
-    level: process.env.LOG_LEVEL || 'info',
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        colorize: true,
-        translateTime: 'HH:MM:ss Z',
-        ignore: 'pid,hostname'
-      }
-    }
-  },
+  logger: false,
+  disableRequestLogging: true,
   ajv: {
     customOptions: {
       strict: false
@@ -914,14 +906,16 @@ try {
   await initRedis();
   await manager.initAll();
   await fastify.listen({ port: PORT, host: HOST });
-  console.log(`\nstandard-api Multi-Instance REST rodando em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-  console.log(`   - Swagger Docs:       http://localhost:${PORT}/docs`);
-  console.log(`   - Listar Instancias:  GET  http://localhost:${PORT}/instance/list`);
-  console.log(`   - Criar Instancia:    POST http://localhost:${PORT}/instance/create`);
-  console.log(`   - Configurar Webhook: POST http://localhost:${PORT}/webhook/set/:instanceName`);
-  console.log(`   - Enviar Mensagem:    POST http://localhost:${PORT}/message/send-text/:instanceName`);
-  console.log(`   - Enviar Midia:       POST http://localhost:${PORT}/message/send-media/:instanceName\n`);
+  
+  logger.banner({
+    port: PORT,
+    host: HOST === '0.0.0.0' ? 'localhost' : HOST,
+    dbConnected: isDbConnected(),
+    redisConnected: isRedisConnected(),
+    hasApiKey: Boolean(GLOBAL_API_KEY)
+  });
+  logger.server(`Servidor HTTP pronto para receber requisicoes.`);
 } catch (err) {
-  fastify.log.error(err);
+  logger.error('server', 'Falha ao iniciar servidor Fastify:', err);
   process.exit(1);
 }
