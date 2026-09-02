@@ -881,7 +881,7 @@ export async function uploadPreKeys(query, creds, ev, count = 50) {
 
     try {
       await query(iq, 10000);
-      logger.info('prekeys', `Enviadas ${newPreKeys.length} novas pre-chaves ao WhatsApp.`);
+      logger.instance('prekeys', `Enviadas ${newPreKeys.length} novas pre-chaves ao WhatsApp.`);
     } catch (e) {
       logger.warn('prekeys', `Falha ao enviar pre-chaves ao WhatsApp: ${e.message}`);
     }
