@@ -688,22 +688,12 @@ export async function connectWA(options = {}) {
       return true;
     });
 
-    // Busca pré-chaves: primário (id 0) + companions em PARALELO com timeout
-    // curto (3s). Cifrar para TODOS os devices é essencial: destinatários
-    // multi-dispositivo mostram "Waiting for message" na web se algum device
-    // não recebe a cópia (mesma família Baileys #2297 / Whatsmeow #1197).
+    // Busca pré-chaves do device primário (id 0). Companions exigem os
+    // endereços LID do destinatário (usync context=message + LID protocol);
+    // buscar por PN causa timeout no servidor — upgrade de devices LID
+    // será feito à parte. Envio continua instantâneo e entregue no phone.
     const primaryDevices = filteredDevices.filter(d => d.id === 0);
-    const companionDevices = filteredDevices.filter(d => d.id > 0);
-
-    const fetchTasks = [
-      fetchPreKeys(conn.query, primaryDevices, signalRepo, 5000).catch((e) => console.warn('[sendMessage] fetch primário falhou:', e.message))
-    ];
-    for (const dev of companionDevices) {
-      fetchTasks.push(
-        fetchPreKeys(conn.query, [dev], signalRepo, 3000).catch((e) => console.warn(`[sendMessage] fetch companion ${dev.jid} falhou:`, e.message))
-      );
-    }
-    await Promise.all(fetchTasks);
+    await fetchPreKeys(conn.query, primaryDevices, signalRepo, 5000);
 
     const participantNodes = [];
     let shouldIncludeDeviceIdentity = false;
