@@ -219,6 +219,7 @@ export async function connectWA(options = {}) {
     };
 
     const emitNode = (node) => {
+      console.log(`[RECV NODE] tag=${node.tag} type=${node.attrs?.type || ''} id=${node.attrs?.id || ''} from=${node.attrs?.from || ''}`);
       if (node.attrs?.id && queries.has(node.attrs.id)) {
         console.log(`[QUERY MATCHED ${node.attrs.id}] tag=${node.tag} type=${node.attrs.type}`);
         const { resolve, reject, timeout } = queries.get(node.attrs.id);
@@ -577,8 +578,11 @@ export async function connectWA(options = {}) {
       return true;
     });
 
-    // Busca pré-chaves em lote para todos os dispositivos usando key-index quando necessário
-    await fetchPreKeys(conn.query, filteredDevices, signalRepo);
+    // Only fetch prekeys for the primary device (id 0). Companion devices (id > 0)
+    // that don't already have sessions are skipped - WhatsApp often doesn't respond
+    // to prekey requests for companion devices, causing unnecessary timeouts.
+    const primaryDevices = filteredDevices.filter(d => d.id === 0);
+    await fetchPreKeys(conn.query, primaryDevices, signalRepo);
 
     const participantNodes = [];
     let shouldIncludeDeviceIdentity = false;
@@ -592,7 +596,7 @@ export async function connectWA(options = {}) {
             await fetchPreKeys(conn.query, [dev], signalRepo);
           } catch (e) {}
         } else {
-          console.log(`[sendMessage] Sem sessão para companion ${deviceJid}, pulando.`);
+          // Don't try to fetch prekeys for companion devices - just skip them
           continue;
         }
       }
