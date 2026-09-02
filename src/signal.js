@@ -20,23 +20,27 @@ export function formatPhoneNumber(input, defaultCountryCode = '55') {
 
 export function jidDecode(jid) {
   if (typeof jid !== 'string' || !jid.includes('@')) return null;
-  const idx = jid.lastIndexOf('@');
-  const userWithDevice = jid.slice(0, idx);
-  let server = jid.slice(idx + 1);
-  let user = userWithDevice;
-  let device = 0;
+  const sepIdx = jid.indexOf('@');
+  if (sepIdx < 0) return null;
+  const userCombined = jid.slice(0, sepIdx);
+  const server = jid.slice(sepIdx + 1);
+
+  const [userAgent, deviceStr] = userCombined.split(':');
+  const [user, agent] = userAgent.split('_');
+  const device = deviceStr ? +deviceStr : undefined;
+
   let domainType = 0;
-
   if (server === 'lid') domainType = 1;
-  else if (server === 'hosted') domainType = 2;
-  else if (server === 'hosted.lid') domainType = 3;
+  else if (server === 'hosted') domainType = 128;
+  else if (server === 'hosted.lid') domainType = 129;
+  else if (agent) domainType = parseInt(agent);
 
-  const colon = userWithDevice.indexOf(':');
-  if (colon !== -1) {
-    user = userWithDevice.slice(0, colon);
-    device = +userWithDevice.slice(colon + 1) || 0;
-  }
-  return { user, device, server, domainType };
+  return {
+    server,
+    user: user || '',
+    domainType,
+    device
+  };
 }
 
 export function jidToSignalProtocolAddress(jid) {
@@ -604,7 +608,7 @@ export async function fetchProfilePictureUrl(query, jidOrNumber, type = 'image')
 }
 
 /**
- * Obtém o status (Recado / Sobre) de um contato.
+ * Obtém o status (Recado / Sobre) de um contato via USync Status Protocol.
  */
 export async function fetchContactStatus(query, jidOrNumber) {
   let targetJid = String(jidOrNumber).trim();
@@ -621,29 +625,46 @@ export async function fetchContactStatus(query, jidOrNumber) {
   try {
     const res = await query({
       tag: 'iq',
-      attrs: {
-        to: '@s.whatsapp.net',
-        type: 'get',
-        xmlns: 'status'
-      },
+      attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
       content: [
         {
-          tag: 'status',
-          attrs: {},
-          content: [{ tag: 'user', attrs: { jid: targetJid } }]
+          tag: 'usync',
+          attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
+          content: [
+            {
+              tag: 'query',
+              attrs: {},
+              content: [{ tag: 'status', attrs: {} }]
+            },
+            {
+              tag: 'list',
+              attrs: {},
+              content: [{
+                tag: 'user',
+                attrs: { jid: targetJid },
+                content: []
+              }]
+            }
+          ]
         }
       ]
     }, 10000);
 
-    const statusNode = (res.content || []).find(c => c && c.tag === 'status');
-    const userNode = statusNode ? (statusNode.content || []).find(c => c && c.tag === 'user') : null;
+    const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
+    const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
+    const userNode = listNode ? (listNode.content || []).find(c => c && c.tag === 'user') : null;
+    const statusNode = userNode ? (userNode.content || []).find(c => c && c.tag === 'status') : null;
 
-    if (userNode) {
-      const text = userNode.content
-        ? (Buffer.isBuffer(userNode.content) ? userNode.content.toString('utf-8') : String(userNode.content))
-        : '';
-      const setAt = userNode.attrs?.t ? new Date(+userNode.attrs.t * 1000).toISOString() : null;
-
+    if (statusNode) {
+      let raw = statusNode.content;
+      let text = '';
+      if (raw) {
+        if (Buffer.isBuffer(raw)) text = raw.toString('utf-8');
+        else if (raw instanceof Uint8Array) text = Buffer.from(raw).toString('utf-8');
+        else if (typeof raw === 'object' && Array.isArray(raw.data)) text = Buffer.from(raw.data).toString('utf-8');
+        else text = String(raw);
+      }
+      const setAt = statusNode.attrs?.t ? new Date(+statusNode.attrs.t * 1000).toISOString() : null;
       return {
         jid: targetJid,
         status: text,
@@ -662,13 +683,80 @@ export async function fetchContactStatus(query, jidOrNumber) {
 }
 
 /**
- * Bloqueia ou desbloqueia um contato no WhatsApp.
+ * Resolve o LID correspondente a um número/JID via USync.
+ */
+export async function getLidForPn(query, jidOrNumber) {
+  let targetJid = String(jidOrNumber).trim();
+  if (!targetJid.includes('@')) {
+    targetJid = `${formatPhoneNumber(targetJid)}@s.whatsapp.net`;
+  }
+  const cleanPhone = targetJid.split('@')[0];
+
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
+      content: [
+        {
+          tag: 'usync',
+          attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
+          content: [
+            {
+              tag: 'query',
+              attrs: {},
+              content: [
+                { tag: 'contact', attrs: {} },
+                { tag: 'lid', attrs: {} }
+              ]
+            },
+            {
+              tag: 'list',
+              attrs: {},
+              content: [{
+                tag: 'user',
+                attrs: {},
+                content: [{ tag: 'contact', attrs: {}, content: '+' + cleanPhone }]
+              }]
+            }
+          ]
+        }
+      ]
+    }, 10000);
+
+    const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
+    const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
+    const userNode = listNode ? (listNode.content || []).find(c => c && c.tag === 'user') : null;
+    const lidNode = userNode ? (userNode.content || []).find(c => c && c.tag === 'lid') : null;
+    const lid = lidNode?.attrs?.val;
+    const canonicalJid = userNode?.attrs?.jid || targetJid;
+    return { lid, pnJid: canonicalJid };
+  } catch (err) {
+    return { lid: null, pnJid: targetJid };
+  }
+}
+
+/**
+ * Bloqueia ou desbloqueia um contato no WhatsApp (compatível com addressing_mode lid).
  */
 export async function updateBlockStatus(query, jidOrNumber, action = 'block') {
-  let jid = String(jidOrNumber).trim();
-  if (!jid.includes('@')) {
-    const formatted = formatPhoneNumber(jid);
-    jid = `${formatted}@s.whatsapp.net`;
+  let clean = String(jidOrNumber).trim();
+  const isLid = clean.endsWith('@lid');
+  let lid = isLid ? clean : null;
+  let pnJid = !isLid ? clean : null;
+
+  if (!isLid) {
+    const resolved = await getLidForPn(query, clean);
+    lid = resolved.lid;
+    pnJid = resolved.pnJid;
+  }
+
+  const itemAttrs = {
+    action: action === 'unblock' ? 'unblock' : 'block',
+    jid: lid || pnJid
+  };
+
+  if (action === 'block' && pnJid) {
+    itemAttrs.pn_jid = pnJid;
   }
 
   await query({
@@ -681,16 +769,13 @@ export async function updateBlockStatus(query, jidOrNumber, action = 'block') {
     content: [
       {
         tag: 'item',
-        attrs: {
-          action: action === 'unblock' ? 'unblock' : 'block',
-          jid
-        }
+        attrs: itemAttrs
       }
     ]
-  }, 8000);
+  }, 10000);
 
   return {
-    jid,
+    jid: pnJid || lid,
     action: action === 'unblock' ? 'unblock' : 'block',
     status: 'SUCCESS'
   };
@@ -737,7 +822,7 @@ export async function updateProfileStatus(query, statusText) {
         content: Buffer.from(String(statusText), 'utf-8')
       }
     ]
-  }, 8000);
+  }, 10000);
 
   return { status: statusText, updated: true };
 }

@@ -355,20 +355,28 @@ export function encodeBinaryNode(node, opts = {}) {
   return Buffer.from(buffer);
 }
 
-/** Decodifica um JID "user@server[:device]" ou "@server" */
+/** Decodifica um JID "user[:device]@server" ou "@server" */
 export function jidDecode(jid) {
   if (typeof jid !== 'string' || !jid.includes('@')) return null;
-  const idx = jid.lastIndexOf('@');
-  const user = jid.slice(0, idx);
-  let server = jid.slice(idx + 1);
-  const colon = server.indexOf(':');
-  let device;
-  if (colon !== -1) {
-    device = +server.slice(colon + 1);
-    server = server.slice(0, colon);
-  }
-  if (server) {
-    return { user: user || '', device, server };
-  }
-  return null;
+  const sepIdx = jid.indexOf('@');
+  if (sepIdx < 0) return null;
+  const userCombined = jid.slice(0, sepIdx);
+  const server = jid.slice(sepIdx + 1);
+
+  const [userAgent, deviceStr] = userCombined.split(':');
+  const [user, agent] = userAgent.split('_');
+  const device = deviceStr ? +deviceStr : undefined;
+
+  let domainType = 0;
+  if (server === 'lid') domainType = 1;
+  else if (server === 'hosted') domainType = 128;
+  else if (server === 'hosted.lid') domainType = 129;
+  else if (agent) domainType = parseInt(agent);
+
+  return {
+    server,
+    user: user || '',
+    domainType,
+    device
+  };
 }
