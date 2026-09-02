@@ -462,32 +462,51 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
     const userNodes = listNode ? (listNode.content || []).filter(c => c && c.tag === 'user') : [];
 
     for (const userNode of userNodes) {
-      const contactNode = (userNode.content || []).find(c => c && c.tag === 'contact');
       const jid = userNode.attrs?.jid;
-      const isRegistered = contactNode ? contactNode.attrs?.type !== 'out' : Boolean(jid);
+      if (!jid) continue;
+      const jidUser = jid.split('@')[0].split(':')[0];
 
-      // Telefone retornado pelo nó de contato ou JID
-      const contactPhone = contactNode?.content
-        ? (Buffer.isBuffer(contactNode.content) ? contactNode.content.toString('utf-8') : String(contactNode.content)).replace(/[^0-9]/g, '')
-        : null;
-      const jidUser = jid ? jid.split('@')[0].split(':')[0] : null;
+      // Processa todos os nós de contato retornados
+      const contactNodes = (userNode.content || []).filter(c => c && c.tag === 'contact');
+      let isRegistered = Boolean(jid);
 
-      const matchedPhone = contactPhone || jidUser;
-      if (matchedPhone) {
-        phoneResults.set(matchedPhone, {
-          exists: isRegistered && Boolean(jid),
-          jid: isRegistered ? jid : null
-        });
+      for (const contactNode of contactNodes) {
+        if (contactNode.attrs?.type === 'out') {
+          isRegistered = false;
+          continue;
+        }
+
+        const rawContent = contactNode.content;
+        let phoneText = null;
+        if (rawContent) {
+          if (Buffer.isBuffer(rawContent)) {
+            phoneText = rawContent.toString('utf-8');
+          } else if (rawContent instanceof Uint8Array) {
+            phoneText = Buffer.from(rawContent).toString('utf-8');
+          } else if (typeof rawContent === 'object' && Array.isArray(rawContent.data)) {
+            phoneText = Buffer.from(rawContent.data).toString('utf-8');
+          } else {
+            phoneText = String(rawContent);
+          }
+        }
+
+        const phoneClean = phoneText ? phoneText.replace(/[^0-9]/g, '') : null;
+        if (phoneClean) {
+          phoneResults.set(phoneClean, {
+            exists: isRegistered,
+            jid
+          });
+        }
       }
-      if (jidUser && jidUser !== matchedPhone) {
+
+      if (jidUser) {
         phoneResults.set(jidUser, {
-          exists: isRegistered && Boolean(jid),
-          jid: isRegistered ? jid : null
+          exists: isRegistered,
+          jid
         });
       }
     }
   } catch (err) {
-    console.error('[checkWhatsAppNumbers ERROR]:', err);
     logger.debug('contact', `Erro ao verificar lote de numeros USync: ${err.message}`);
   }
 
