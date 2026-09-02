@@ -9,6 +9,7 @@ import { configureSuccessfulPairing } from '../pairing/pairing.js';
 import {
   makeSignalRepository,
   fetchPreKeys,
+  uploadPreKeys,
   usyncUser,
   jidDecode,
   checkWhatsAppNumber,
@@ -239,6 +240,7 @@ export async function connectWA(options = {}) {
           isAuthenticated = true;
           ev.emit('connection.update', { connection: 'open' });
           startKeepAlive();
+          uploadPreKeys(query, currentCreds, ev).catch((err) => console.warn('[uploadPreKeys fail]', err.message));
           query({
             tag: 'iq',
             attrs: {
@@ -366,16 +368,54 @@ export async function connectWA(options = {}) {
                 }
               }
 
-              if (node.attrs.id) {
-                const receiptNode = {
+              if (decodedMsg && !decodedMsg.rawError) {
+                if (node.attrs.id) {
+                  const receiptNode = {
+                    tag: 'receipt',
+                    attrs: {
+                      id: node.attrs.id,
+                      to: from
+                    }
+                  };
+                  if (participant) receiptNode.attrs.participant = participant;
+                  sock.sendNode(receiptNode).catch(() => {});
+                }
+              } else if (node.attrs.id) {
+                const encodeBigEndian4 = (value) => {
+                  const buf = Buffer.alloc(4);
+                  let v = value;
+                  for (let i = 3; i >= 0; i--) {
+                    buf[i] = v & 0xff;
+                    v = Math.floor(v / 256);
+                  }
+                  return buf;
+                };
+                const retryNode = {
                   tag: 'receipt',
                   attrs: {
                     id: node.attrs.id,
+                    type: 'retry',
                     to: from
-                  }
+                  },
+                  content: [
+                    {
+                      tag: 'retry',
+                      attrs: {
+                        count: '1',
+                        id: node.attrs.id,
+                        t: node.attrs.t,
+                        v: '1'
+                      }
+                    },
+                    {
+                      tag: 'registration',
+                      attrs: {},
+                      content: encodeBigEndian4(currentCreds?.registrationId || 0)
+                    }
+                  ]
                 };
-                if (participant) receiptNode.attrs.participant = participant;
-                sock.sendNode(receiptNode).catch(() => {});
+                if (participant) retryNode.attrs.participant = participant;
+                sock.sendNode(retryNode).catch(() => {});
               }
 
               let remoteJidAlt = null;
@@ -391,6 +431,7 @@ export async function connectWA(options = {}) {
                   id: node.attrs.id,
                   participant
                 },
+                senderPn: remoteJidAlt,
                 pushName: node.attrs.notify || '',
                 message: decodedMsg,
                 messageTimestamp: +node.attrs.t || Math.floor(Date.now() / 1000)

@@ -316,7 +316,7 @@ export async function fetchPreKeys(query, devicesList, repository) {
         tag: 'key',
         attrs: {},
         content: itemsToFetch.map(({ jid, keyIndex }) => {
-          const node = { tag: 'user', attrs: { jid }, content: undefined };
+          const node = { tag: 'user', attrs: { jid, reason: 'identity' } };
           if (keyIndex) node.attrs['key-index'] = String(keyIndex);
           return node;
         })
@@ -795,26 +795,96 @@ export async function fetchBlocklist(query) {
   }
 }
 
-/**
- * Atualiza o status/recado do próprio perfil da instância.
- */
-export async function updateProfileStatus(query, statusText) {
-  await query({
-    tag: 'iq',
-    attrs: {
-      to: '@s.whatsapp.net',
-      type: 'set',
-      xmlns: 'status'
-    },
-    content: [
-      {
-        tag: 'status',
-        attrs: {},
-        content: Buffer.from(String(statusText), 'utf-8')
-      }
-    ]
-  }, 10000);
+export function generatePreKeys(startId = 1, count = 50) {
+  const preKeys = [];
+  for (let i = 0; i < count; i++) {
+    const keyId = startId + i;
+    preKeys.push({
+      keyId,
+      keyPair: Curve.generateKeyPair()
+    });
+  }
+  return preKeys;
+}
 
-  return { status: statusText, updated: true };
+const encodeBigEndian3 = (value) => {
+  const buf = Buffer.alloc(3);
+  let v = value;
+  for (let i = 2; i >= 0; i--) {
+    buf[i] = v & 0xff;
+    v = Math.floor(v / 256);
+  }
+  return buf;
+};
+
+const encodeBigEndian4 = (value) => {
+  const buf = Buffer.alloc(4);
+  let v = value;
+  for (let i = 3; i >= 0; i--) {
+    buf[i] = v & 0xff;
+    v = Math.floor(v / 256);
+  }
+  return buf;
+};
+
+export async function uploadPreKeys(query, creds, ev, count = 50) {
+  if (!creds || !creds.signedIdentityKey || !creds.signedPreKey) return;
+  if (!creds.preKeys) creds.preKeys = {};
+  const existingKeys = Object.keys(creds.preKeys).map(Number).filter(n => !isNaN(n));
+  const maxId = existingKeys.length > 0 ? Math.max(...existingKeys) : 0;
+
+  if (existingKeys.length < 20) {
+    const newPreKeys = generatePreKeys(maxId + 1, count);
+    for (const k of newPreKeys) {
+      creds.preKeys[k.keyId] = {
+        public: Buffer.from(k.keyPair.public).toString('base64'),
+        private: Buffer.from(k.keyPair.private).toString('base64')
+      };
+    }
+    if (ev) ev.emit('creds.update', { preKeys: creds.preKeys });
+
+    const S_WHATSAPP_NET = '@s.whatsapp.net';
+    const iq = {
+      tag: 'iq',
+      attrs: {
+        to: S_WHATSAPP_NET,
+        type: 'set',
+        xmlns: 'encrypt'
+      },
+      content: [
+        { tag: 'registration', attrs: {}, content: encodeBigEndian4(creds.registrationId) },
+        { tag: 'type', attrs: {}, content: Buffer.from([5]) },
+        { tag: 'identity', attrs: {}, content: Buffer.from(creds.signedIdentityKey.public) },
+        {
+          tag: 'list',
+          attrs: {},
+          content: newPreKeys.map(k => ({
+            tag: 'key',
+            attrs: {},
+            content: [
+              { tag: 'id', attrs: {}, content: encodeBigEndian3(k.keyId) },
+              { tag: 'value', attrs: {}, content: Buffer.from(k.keyPair.public) }
+            ]
+          }))
+        },
+        {
+          tag: 'skey',
+          attrs: {},
+          content: [
+            { tag: 'id', attrs: {}, content: encodeBigEndian3(creds.signedPreKey.keyId) },
+            { tag: 'value', attrs: {}, content: Buffer.from(creds.signedPreKey.keyPair.public) },
+            { tag: 'signature', attrs: {}, content: Buffer.from(creds.signedPreKey.signature) }
+          ]
+        }
+      ]
+    };
+
+    try {
+      await query(iq, 10000);
+      logger.info('prekeys', `Enviadas ${newPreKeys.length} novas pre-chaves ao WhatsApp.`);
+    } catch (e) {
+      logger.warn('prekeys', `Falha ao enviar pre-chaves ao WhatsApp: ${e.message}`);
+    }
+  }
 }
 
