@@ -6,6 +6,16 @@ import webhookRoutes from './webhook.routes.js';
 export default async function registerRoutes(fastify, options) {
   const { manager } = options;
 
+  // Erro de "instância não encontrada" deve virar 404 (não 500) para o
+  // consumidor poder auto-criar a instância (padrão Flowbash _ensure).
+  fastify.setErrorHandler((err, request, reply) => {
+    if (err instanceof Error && /não encontrada|não encontrado/i.test(err.message)) {
+      reply.code(404);
+      return { error: err.message };
+    }
+    reply.send(err);
+  });
+
   // Rota inicial / Info
   fastify.get('/', {
     schema: {
