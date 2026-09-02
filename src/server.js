@@ -949,7 +949,18 @@ fastify.post('/contact/check-number/:instanceName', {
   const instance = manager.getInstance(instanceName);
   const { number, numbers } = request.body || {};
 
-  const targets = Array.isArray(numbers) ? numbers : (number ? [number] : []);
+  const targets = [];
+  if (typeof number === 'string' && number.trim()) {
+    targets.push(number.trim());
+  }
+  if (Array.isArray(numbers)) {
+    for (const n of numbers) {
+      if (typeof n === 'string' && n.trim() && !targets.includes(n.trim())) {
+        targets.push(n.trim());
+      }
+    }
+  }
+
   if (targets.length === 0) {
     throw new Error('Forneça "number" (string) ou "numbers" (array de strings).');
   }
@@ -975,7 +986,17 @@ fastify.post('/contact/check-number', {
 }, async (request) => {
   const instance = manager.getInstance('default');
   const { number, numbers } = request.body || {};
-  const targets = Array.isArray(numbers) ? numbers : (number ? [number] : []);
+  const targets = [];
+  if (typeof number === 'string' && number.trim()) {
+    targets.push(number.trim());
+  }
+  if (Array.isArray(numbers)) {
+    for (const n of numbers) {
+      if (typeof n === 'string' && n.trim() && !targets.includes(n.trim())) {
+        targets.push(n.trim());
+      }
+    }
+  }
   if (targets.length === 0) {
     throw new Error('Forneça "number" (string) ou "numbers" (array de strings).');
   }

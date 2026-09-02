@@ -391,58 +391,75 @@ export async function fetchPreKeys(query, devicesList, repository) {
  */
 export async function checkWhatsAppNumber(query, number) {
   const formattedPhone = formatPhoneNumber(number);
-  const phoneWithPlus = '+' + formattedPhone;
-
-  try {
-    const res = await query({
-      tag: 'iq',
-      attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
-      content: [
-        {
-          tag: 'usync',
-          attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
-          content: [
-            {
-              tag: 'query',
-              attrs: {},
-              content: [
-                { tag: 'contact', attrs: {} },
-                { tag: 'status', attrs: {} },
-                { tag: 'devices', attrs: { version: '2' } }
-              ]
-            },
-            {
-              tag: 'list',
-              attrs: {},
-              content: [
-                { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: phoneWithPlus }] }
-              ]
-            }
-          ]
-        }
-      ]
-    }, 8000);
-
-    const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
-    const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
-    const userNode = listNode ? (listNode.content || []).find(c => c && c.tag === 'user') : null;
-
-    if (userNode) {
-      const contactNode = (userNode.content || []).find(c => c && c.tag === 'contact');
-      const isRegistered = contactNode ? contactNode.attrs?.type !== 'out' : Boolean(userNode.attrs?.jid);
-      const jid = userNode.attrs?.jid || `${formattedPhone}@s.whatsapp.net`;
-      const statusNode = (userNode.content || []).find(c => c && c.tag === 'status');
-      const statusText = statusNode?.content ? (Buffer.isBuffer(statusNode.content) ? statusNode.content.toString('utf-8') : String(statusNode.content)) : null;
-
-      return {
-        exists: isRegistered,
-        jid: isRegistered ? jid : null,
-        number: formattedPhone,
-        status: statusText
-      };
+  
+  // Gera lista de formatos a tentar (para números brasileiros com/sem o 9º dígito)
+  const phonesToTry = [formattedPhone];
+  if (formattedPhone.startsWith('55')) {
+    if (formattedPhone.length === 13 && formattedPhone[4] === '9') {
+      // 55 + DDD + 9 + 8 dígitos -> adiciona versão de 12 dígitos sem o 9
+      phonesToTry.push(`55${formattedPhone.slice(2, 4)}${formattedPhone.slice(5)}`);
+    } else if (formattedPhone.length === 12) {
+      // 55 + DDD + 8 dígitos -> adiciona versão de 13 dígitos com o 9
+      phonesToTry.push(`55${formattedPhone.slice(2, 4)}9${formattedPhone.slice(4)}`);
     }
-  } catch (err) {
-    logger.debug('contact', `Erro ao verificar numero ${number}: ${err.message}`);
+  }
+
+  for (const phone of phonesToTry) {
+    const phoneWithPlus = '+' + phone;
+    try {
+      const res = await query({
+        tag: 'iq',
+        attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
+        content: [
+          {
+            tag: 'usync',
+            attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
+            content: [
+              {
+                tag: 'query',
+                attrs: {},
+                content: [
+                  { tag: 'contact', attrs: {} },
+                  { tag: 'status', attrs: {} },
+                  { tag: 'devices', attrs: { version: '2' } }
+                ]
+              },
+              {
+                tag: 'list',
+                attrs: {},
+                content: [
+                  { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: phoneWithPlus }] }
+                ]
+              }
+            ]
+          }
+        ]
+      }, 8000);
+
+      const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
+      const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
+      const userNode = listNode ? (listNode.content || []).find(c => c && c.tag === 'user') : null;
+
+      if (userNode) {
+        const contactNode = (userNode.content || []).find(c => c && c.tag === 'contact');
+        const isRegistered = contactNode ? contactNode.attrs?.type !== 'out' : Boolean(userNode.attrs?.jid);
+        
+        if (isRegistered && userNode.attrs?.jid) {
+          const jid = userNode.attrs.jid;
+          const statusNode = (userNode.content || []).find(c => c && c.tag === 'status');
+          const statusText = statusNode?.content ? (Buffer.isBuffer(statusNode.content) ? statusNode.content.toString('utf-8') : String(statusNode.content)) : null;
+
+          return {
+            exists: true,
+            jid,
+            number: phone,
+            status: statusText
+          };
+        }
+      }
+    } catch (err) {
+      logger.debug('contact', `Erro ao verificar numero ${phone}: ${err.message}`);
+    }
   }
 
   return {
