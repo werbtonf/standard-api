@@ -173,12 +173,31 @@ export function makeSignalRepository(creds, ev) {
     return Buffer.from(plaintext);
   };
 
+  const clearSessions = (jid) => {
+    const decoded = jidDecode(jid);
+    const uid = decoded?.user || String(jid).split('@')[0];
+    if (!uid) return;
+    let removed = 0;
+    for (const key of Object.keys(creds.sessions || {})) {
+      const keyUserId = String(key).split('@')[0].split('.')[0];
+      if (keyUserId === uid || keyUserId.startsWith(`${uid}_`)) {
+        delete creds.sessions[key];
+        removed++;
+      }
+    }
+    if (removed > 0) {
+      if (ev) ev.emit('creds.update', { sessions: creds.sessions });
+      console.log(`[signal] sessoes resetadas para ${uid} (${removed})`);
+    }
+  };
+
   return {
     storage,
     hasSession,
     injectSession,
     encryptMessage,
-    decryptMessage
+    decryptMessage,
+    clearSessions
   };
 }
 

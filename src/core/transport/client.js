@@ -368,6 +368,15 @@ export async function connectWA(options = {}) {
               const participant = node.attrs.participant;
               const senderJid = participant || from;
               const senderPn = node.attrs.sender_pn || node.attrs.recipient_pn || node.attrs.participant_pn;
+
+              if ((from || '').includes('@broadcast') || (from || '').includes('@newsletter')) {
+                if (node.attrs.id) {
+                  sock.sendNode({ tag: 'receipt', attrs: { id: node.attrs.id, to: from } }).catch(() => {});
+                }
+                console.log(`[INCOMING] evento broadcast/status ignorado de ${from}`);
+                return;
+              }
+
               console.log(`[INCOMING] from=${from} participant=${participant || 'none'} senderPn=${senderPn || 'none'} id=${node.attrs.id}`);
               const encNode = getBinaryNodeChild(node, 'enc');
               let decodedMsg = null;
@@ -385,6 +394,10 @@ export async function connectWA(options = {}) {
                   console.log(`[INCOMING] Decifrado com sucesso! keys=${Object.keys(decodedMsg || {}).join(',')}`);
                 } catch (err) {
                   console.error('[message decrypt fail]', senderJid, err.message);
+                  const msg = String(err.message || '');
+                  if (/Key used already|never filled|Chain closed|Bad MAC|No matching sessions/.test(msg)) {
+                    signalRepo.clearSessions(senderJid);
+                  }
                   // Try decrypting with senderPn JID if different from senderJid
                   if (senderPn) {
                     const altJid = senderPn.includes('@') ? senderPn : `${senderPn.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
@@ -400,6 +413,10 @@ export async function connectWA(options = {}) {
                         console.log(`[INCOMING] Decifrado com JID alternativo! keys=${Object.keys(decodedMsg || {}).join(',')}`);
                       } catch (err2) {
                         console.error('[message decrypt fail alt]', altJid, err2.message);
+                        const msg2 = String(err2.message || '');
+                        if (/Key used already|never filled|Chain closed|Bad MAC|No matching sessions/.test(msg2)) {
+                          signalRepo.clearSessions(altJid);
+                        }
                         decodedMsg = { rawError: err.message };
                       }
                     } else {
