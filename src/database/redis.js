@@ -1,12 +1,13 @@
 import Redis from 'ioredis';
-import { logger } from './logger.js';
+import { logger } from '../utils/logger.js';
+import { env } from '../config/env.js';
 
 let redisClient = null;
 let isConnected = false;
 
 export async function initRedis() {
-  const redisUrl = process.env.REDIS_URL;
-  const redisEnabled = process.env.REDIS_ENABLED === 'true' || Boolean(redisUrl);
+  const redisUrl = env.REDIS_URL;
+  const redisEnabled = env.REDIS_ENABLED;
 
   if (!redisEnabled || !redisUrl) {
     logger.redis('Redis nao configurado. Operando sem cache distribuido.');
@@ -24,7 +25,7 @@ export async function initRedis() {
       lazyConnect: true
     });
 
-    redisClient.on('error', (err) => {
+    redisClient.on('error', () => {
       // suprime erros repetitivos de reconexao
     });
 

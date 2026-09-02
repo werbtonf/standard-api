@@ -3,7 +3,7 @@ import {
   encodeBytes,
   encodeVarint,
   decodeGeneric
-} from './proto.js';
+} from '../core/binary/proto.js';
 
 export const writeRandomPadMax16 = (msg) => {
   const pad = randomBytes(1);

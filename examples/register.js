@@ -1,6 +1,5 @@
-// Exemplo: registrar um dispositivo novo via QR code (com log em arquivo).
-import { connectWA } from '../src/client.js';
-import { initAuthCreds, signPreKeys } from '../src/auth.js';
+import { connectWA } from '../src/core/transport/client.js';
+import { initAuthCreds, signPreKeys } from '../src/core/pairing/auth.js';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import QRCode from 'qrcode';

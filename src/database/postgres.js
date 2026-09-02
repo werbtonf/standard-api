@@ -1,5 +1,6 @@
 import pg from 'pg';
-import { logger } from './logger.js';
+import { logger } from '../utils/logger.js';
+import { env } from '../config/env.js';
 
 const { Pool } = pg;
 
@@ -7,8 +8,8 @@ let pool = null;
 let isConnected = false;
 
 export async function initDatabase() {
-  const dbUrl = process.env.DATABASE_URL;
-  const dbEnabled = process.env.DATABASE_ENABLED === 'true' || Boolean(dbUrl);
+  const dbUrl = env.DATABASE_URL;
+  const dbEnabled = env.DATABASE_ENABLED;
 
   if (!dbEnabled || !dbUrl) {
     logger.db('PostgreSQL nao configurado. Operando em modo de arquivos locais.');
@@ -176,6 +177,3 @@ export async function deleteInstanceFromDb(instanceName) {
     logger.debug('db', `Erro ao deletar instancia do DB: ${e.message}`);
   }
 }
-
-
-

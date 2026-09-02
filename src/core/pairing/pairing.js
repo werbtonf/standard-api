@@ -1,10 +1,10 @@
-import { Curve, hmacSign } from './crypto.js';
+import { Curve, hmacSign } from '../crypto/crypto.js';
 import {
   decodeADVSignedDeviceIdentityHMAC,
   decodeADVSignedDeviceIdentity,
   decodeADVDeviceIdentity,
   encodeADVSignedDeviceIdentity
-} from './proto.js';
+} from '../binary/proto.js';
 
 const WA_ADV_ACCOUNT_SIG_PREFIX = Buffer.from([6, 0]);
 const WA_ADV_DEVICE_SIG_PREFIX = Buffer.from([6, 1]);

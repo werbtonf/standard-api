@@ -2,11 +2,11 @@
 // Faz: connect -> clientHello -> serverHello -> clientFinish
 // Sem creds, o servidor vai rejeitar o ClientPayload, mas isso prova
 // que o handshake de transporte funciona.
-import { WASocket } from '../src/ws.js';
-import { makeNoiseHandler } from '../src/noise.js';
-import { Curve } from '../src/crypto.js';
-import { encodeHandshakeMessage, decodeHandshakeMessage, encodeClientPayload } from '../src/proto.js';
-import { WA_WS_URL } from '../src/constants.js';
+import { WASocket } from '../src/core/transport/ws.js';
+import { makeNoiseHandler } from '../src/core/crypto/noise.js';
+import { Curve } from '../src/core/crypto/crypto.js';
+import { encodeHandshakeMessage, decodeHandshakeMessage, encodeClientPayload } from '../src/core/binary/proto.js';
+import { WA_WS_URL } from '../src/config/constants.js';
 
 const ephemeralKeyPair = await Curve.generateKeyPair();
 const noiseKeyPair = await Curve.generateKeyPair();

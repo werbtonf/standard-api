@@ -1,4 +1,4 @@
-import { connectWA } from '../src/client.js';
+import { connectWA } from '../src/core/transport/client.js';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 

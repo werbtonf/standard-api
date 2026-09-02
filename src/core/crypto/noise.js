@@ -1,6 +1,6 @@
-import { NOISE_MODE, NOISE_WA_HEADER, WA_CERT_DETAILS } from './constants.js';
+import { NOISE_MODE, NOISE_WA_HEADER, WA_CERT_DETAILS } from '../../config/constants.js';
 import { aesEncryptGCM, aesDecryptGCM, Curve, hkdf, sha256 } from './crypto.js';
-import { decodeCertChain, decodeNoiseCertDetails } from './proto.js';
+import { decodeCertChain, decodeNoiseCertDetails } from '../binary/proto.js';
 
 const IV_LENGTH = 12;
 const EMPTY = Buffer.alloc(0);
@@ -47,23 +47,6 @@ class TransportState {
 
 /**
  * Handler do protocolo Noise XX_25519_AESGCM_SHA256 do WhatsApp.
- *
- * Fluxo:
- *  1. state = sha256("Noise_XX_25519_AESGCM_SHA256\0\0\0\0")
- *  2. authenticate(NOISE_WA_HEADER), authenticate(chave pública efêmera)
- *  3. send: clientHello = chave pública efêmera
- *  4. recv: serverHello { ephemeral, static(enc), payload(enc) }
- *     - authenticate(serverHello.ephemeral)
- *     - mixIntoKey(sharedKey(priv, serverHello.ephemeral))
- *     - decStatic = decrypt(serverHello.static)
- *     - mixIntoKey(sharedKey(priv, decStatic))
- *     - cert = decrypt(serverHello.payload)  -> CertChain protobuf (validação opcional)
- *     - keyEnc = encrypt(noiseKey.public)  (a chave estática do cliente)
- *     - mixIntoKey(sharedKey(noiseKey.private, serverHello.ephemeral))
- *  5. send: clientFinish { static: keyEnc, payload: encrypt(ClientPayload) }
- *  6. finishInit: transport = HKDF(salt, "", 64) -> encKey/decKey
- *
- * Depois disso, todos os frames usam transport.encrypt/decrypt.
  */
 export function makeNoiseHandler({ keyPair, routingInfo }) {
   const data = Buffer.from(NOISE_MODE, 'utf8');
@@ -172,9 +155,6 @@ export function makeNoiseHandler({ keyPair, routingInfo }) {
     mixIntoKey,
     finishInit,
 
-    /**
-     * Processa o serverHello e retorna o "static" criptografado do clientFinish.
-     */
     async processHandshake({ serverHello }, noiseKey) {
       authenticate(serverHello.ephemeral);
       mixIntoKey(await Curve.sharedKey(keyPair.private, serverHello.ephemeral));

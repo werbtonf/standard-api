@@ -58,8 +58,6 @@ export const aesDecryptCBC = (ciphertext, key, iv) => {
 };
 
 // --- X25519 (Curve25519) ---
-// Usa o key exchange "x25519" nativo do Node (crypto.diffieHellman)
-// que aceita chaves privadas X25519 exportadas no formato PKCS8.
 
 const PRIVATE_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
 const PUBLIC_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
@@ -81,9 +79,6 @@ export const Curve = {
     return crypto.diffieHellman({ privateKey: priv, publicKey: pub });
   },
 
-  /**
-   * Verifica uma assinatura Ed25519 (via curve25519-js, como o libsignal faz).
-   */
   async verify(publicKey, message, signature) {
     const { verify: edVerify } = await import('curve25519-js');
     const keyBytes = publicKey.length === 33 ? publicKey.subarray(1) : publicKey;
@@ -94,9 +89,6 @@ export const Curve = {
     );
   },
 
-  /**
-   * Assina uma mensagem com Ed25519 (via curve25519-js).
-   */
   async sign(privateKey, message) {
     const { sign: edSign } = await import('curve25519-js');
     return Buffer.from(edSign(new Uint8Array(privateKey), new Uint8Array(message)));

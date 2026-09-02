@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'node:events';
-import { encodeBinaryNode } from './wabinary.js';
+import { encodeBinaryNode } from '../binary/wabinary.js';
 
 /**
  * Wrapper do WebSocket do WhatsApp.

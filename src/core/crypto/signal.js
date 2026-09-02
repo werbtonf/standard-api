@@ -1,22 +1,15 @@
 import libsignal from 'libsignal';
 import { Curve, randomBytes } from './crypto.js';
-import { KEY_BUNDLE_TYPE } from './auth.js';
-import { logger } from './logger.js';
+import { KEY_BUNDLE_TYPE } from '../pairing/auth.js';
+import { logger } from '../../utils/logger.js';
+import { formatPhoneNumber } from '../../utils/phone.js';
+export { formatPhoneNumber };
 
 export const generateSignalPubKey = (pubKey) => {
   if (!pubKey) return pubKey;
   const buf = Buffer.isBuffer(pubKey) ? pubKey : Buffer.from(pubKey);
   return buf.length === 33 ? buf : Buffer.concat([KEY_BUNDLE_TYPE, buf]);
 };
-
-export function formatPhoneNumber(input, defaultCountryCode = '55') {
-  let clean = String(input).trim().replace(/[^0-9]/g, '');
-  if (!clean) return clean;
-  if (clean.length === 10 || clean.length === 11) {
-    clean = defaultCountryCode + clean;
-  }
-  return clean;
-}
 
 export function jidDecode(jid) {
   if (typeof jid !== 'string' || !jid.includes('@')) return null;

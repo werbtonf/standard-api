@@ -1,4 +1,4 @@
-import { randomBytes, sha256, hmac, hkdf, aesEncryptCBC, aesDecryptCBC } from './crypto.js';
+import { randomBytes, sha256, hmac, hkdf, aesEncryptCBC, aesDecryptCBC } from '../core/crypto/crypto.js';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import https from 'node:https';

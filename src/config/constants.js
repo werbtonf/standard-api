@@ -8,5 +8,6 @@ export const WA_CERT_DETAILS = {
   PUBLIC_KEY: Buffer.from('142375574d0a587166aae71ebe516437c4a28b73e3695c6ce1f7f9545da8ee6b', 'hex')
 };
 export const WA_WS_URL = 'wss://web.whatsapp.com/ws/chat';
+export const S_WHATSAPP_NET = '@s.whatsapp.net';
 export const CONNECT_TIMEOUT_MS = 20000;
 export const KEEP_ALIVE_INTERVAL_MS = 30000;

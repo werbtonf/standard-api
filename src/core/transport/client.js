@@ -1,11 +1,11 @@
 import { EventEmitter } from 'node:events';
 import { WASocket } from './ws.js';
-import { makeNoiseHandler } from './noise.js';
-import { Curve, randomBytes } from './crypto.js';
-import { encodeBinaryNode, decodeBinaryNode } from './wabinary.js';
-import { encodeHandshakeMessage, decodeHandshakeMessage, encodeADVSignedDeviceIdentity } from './proto.js';
-import { signPreKeys, normalizeCreds, buildRegistrationPayload, buildLoginPayload, buildPairingQRData } from './auth.js';
-import { configureSuccessfulPairing } from './pairing.js';
+import { makeNoiseHandler } from '../crypto/noise.js';
+import { Curve, randomBytes } from '../crypto/crypto.js';
+import { encodeBinaryNode, decodeBinaryNode } from '../binary/wabinary.js';
+import { encodeHandshakeMessage, decodeHandshakeMessage, encodeADVSignedDeviceIdentity } from '../binary/proto.js';
+import { signPreKeys, normalizeCreds, buildRegistrationPayload, buildLoginPayload, buildPairingQRData } from '../pairing/auth.js';
+import { configureSuccessfulPairing } from '../pairing/pairing.js';
 import {
   makeSignalRepository,
   fetchPreKeys,
@@ -18,17 +18,16 @@ import {
   updateBlockStatus,
   fetchBlocklist,
   updateProfileStatus
-} from './signal.js';
-import { encodeMessage, decodeMessage } from './messages.js';
-import { prepareMediaMessage } from './media.js';
-import { logger } from './logger.js';
+} from '../crypto/signal.js';
+import { encodeMessage, decodeMessage } from '../../services/message.service.js';
+import { prepareMediaMessage } from '../../services/media.service.js';
+import { logger } from '../../utils/logger.js';
 import {
   WA_WS_URL,
   CONNECT_TIMEOUT_MS,
-  KEEP_ALIVE_INTERVAL_MS
-} from './constants.js';
-
-const S_WHATSAPP_NET = '@s.whatsapp.net';
+  KEEP_ALIVE_INTERVAL_MS,
+  S_WHATSAPP_NET
+} from '../../config/constants.js';
 const COMPANION_REG_REFRESH_CHILDREN = ['companion_reg_refresh', 'pair-device-rotate-qr'];
 
 let messageIdCounter = 0;

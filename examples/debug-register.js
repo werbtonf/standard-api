@@ -1,9 +1,8 @@
-// Debug do fluxo completo de registro (handshake + ClientPayload de registro)
-import { WASocket } from '../src/ws.js';
-import { makeNoiseHandler } from '../src/noise.js';
-import { Curve } from '../src/crypto.js';
-import { encodeHandshakeMessage, decodeHandshakeMessage } from '../src/proto.js';
-import { initAuthCreds, signPreKeys, buildRegistrationPayload } from '../src/auth.js';
+import { WASocket } from '../src/core/transport/ws.js';
+import { makeNoiseHandler } from '../src/core/crypto/noise.js';
+import { Curve } from '../src/core/crypto/crypto.js';
+import { encodeHandshakeMessage, decodeHandshakeMessage } from '../src/core/binary/proto.js';
+import { initAuthCreds, signPreKeys, buildRegistrationPayload } from '../src/core/pairing/auth.js';
 import { writeFileSync } from 'node:fs';
 
 let frames = 0;

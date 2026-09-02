@@ -1,5 +1,5 @@
-import { Curve, randomBytes } from './crypto.js';
-import { encodeDeviceProps, encodeDevicePairingRegistrationData, encodeClientPayload } from './proto.js';
+import { Curve, randomBytes } from '../crypto/crypto.js';
+import { encodeDeviceProps, encodeClientPayload } from '../binary/proto.js';
 import { createHash } from 'node:crypto';
 
 export const KEY_BUNDLE_TYPE = Buffer.from([5]);
@@ -135,7 +135,6 @@ export async function buildRegistrationPayload(creds, config) {
 
 /** Monta o ClientPayload de login (dispositivo já pareado). */
 export function buildLoginPayload(creds, config) {
-  const [manufacturer, platform, osVersion] = config.browser;
   return encodeClientPayload({
     passive: true,
     pull: true,
@@ -151,7 +150,6 @@ export function buildLoginPayload(creds, config) {
 }
 
 const buildUserAgent = (config) => {
-  const [os, browserName, version] = config.browser;
   const ua = {
     appVersion: {
       primary: config.version[0],
