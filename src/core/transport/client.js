@@ -688,11 +688,22 @@ export async function connectWA(options = {}) {
       return true;
     });
 
-    // Only fetch prekeys for the primary device (id 0). Companion devices (id > 0)
-    // that don't already have sessions are skipped - WhatsApp often doesn't respond
-    // to prekey requests for companion devices, causing unnecessary timeouts.
+    // Busca pré-chaves: primário (id 0) + companions em PARALELO com timeout
+    // curto (3s). Cifrar para TODOS os devices é essencial: destinatários
+    // multi-dispositivo mostram "Waiting for message" na web se algum device
+    // não recebe a cópia (mesma família Baileys #2297 / Whatsmeow #1197).
     const primaryDevices = filteredDevices.filter(d => d.id === 0);
-    await fetchPreKeys(conn.query, primaryDevices, signalRepo);
+    const companionDevices = filteredDevices.filter(d => d.id > 0);
+
+    const fetchTasks = [
+      fetchPreKeys(conn.query, primaryDevices, signalRepo, 5000).catch((e) => console.warn('[sendMessage] fetch primário falhou:', e.message))
+    ];
+    for (const dev of companionDevices) {
+      fetchTasks.push(
+        fetchPreKeys(conn.query, [dev], signalRepo, 3000).catch((e) => console.warn(`[sendMessage] fetch companion ${dev.jid} falhou:`, e.message))
+      );
+    }
+    await Promise.all(fetchTasks);
 
     const participantNodes = [];
     let shouldIncludeDeviceIdentity = false;
