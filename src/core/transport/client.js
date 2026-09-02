@@ -394,9 +394,13 @@ export async function connectWA(options = {}) {
 
               console.log(`[INCOMING] from=${from} participant=${participant || 'none'} senderPn=${senderPn || 'none'} id=${node.attrs.id}`);
 
-              // Eco do próprio número (mensagens que enviamos reaparecem no socket)
+              // Eco do próprio número (mensagens que enviamos reaparecem no socket,
+              // tanto via @s.whatsapp.net quanto via @lid)
               const myUser = (currentCreds?.me?.id || '').split('@')[0].split(':')[0];
-              const fromIsSelf = !!myUser && (from || '').split('@')[0].split(':')[0] === myUser;
+              const myLidUser = (currentCreds?.me?.lid || '').split('@')[0].split(':')[0];
+              const myUsers = new Set([myUser, myLidUser].filter(Boolean));
+              const fromUser = (from || '').split('@')[0].split(':')[0];
+              const fromIsSelf = myUsers.size > 0 && myUsers.has(fromUser);
 
               // Placeholder temporário do servidor ("Aguardando mensagem/Waiting for message"):
               // eco do nosso envio ainda não confirmado pelo telefone. Não deve ser
