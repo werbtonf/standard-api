@@ -52,17 +52,6 @@ export class WASocket extends EventEmitter {
 
     this.ws.on('error', (err) => this.emit('error', err));
 
-    // keepalive de transporte (WS level) para não cair durante o registro
-    this.pingInterval = setInterval(() => {
-      if (this.isOpen && this.ws.readyState === WebSocket.OPEN) {
-        try { this.ws.ping(); } catch (e) {}
-      }
-    }, 30000);
-
-    this.ws.on('close', () => {
-      clearInterval(this.pingInterval);
-    });
-
     return this;
   }
 
