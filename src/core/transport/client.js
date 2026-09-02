@@ -167,6 +167,10 @@ export async function connectWA(options = {}) {
     };
 
     const handlePairDevice = async (node) => {
+      if (currentCreds?.me) {
+        console.log('[pair] pair-device ignorado: sessao ja autenticada (sem re-pair em-loop)');
+        return;
+      }
       try {
         const iq = { tag: 'iq', attrs: { to: S_WHATSAPP_NET, type: 'result', id: node.attrs.id } };
         await sock.sendNode(iq);
