@@ -219,7 +219,10 @@ export async function connectWA(options = {}) {
     };
 
     const emitNode = (node) => {
-      console.log(`[RECV NODE] tag=${node.tag} type=${node.attrs?.type || ''} id=${node.attrs?.id || ''} from=${node.attrs?.from || ''}`);
+      const contentPreview = Array.isArray(node.content)
+        ? JSON.stringify(node.content.map(c => ({ tag: c.tag, attrs: c.attrs, buf: Buffer.isBuffer(c.content) ? `${c.content.length}B` : undefined }))).slice(0, 300)
+        : (Buffer.isBuffer(node.content) ? `buf:${node.content.length}B` : String(node.content || '').slice(0, 100));
+      console.log(`[RECV NODE] tag=${node.tag} type=${node.attrs?.type || ''} id=${node.attrs?.id || ''} from=${node.attrs?.from || ''} content=${contentPreview}`);
       if (node.attrs?.id && queries.has(node.attrs.id)) {
         console.log(`[QUERY MATCHED ${node.attrs.id}] tag=${node.tag} type=${node.attrs.type}`);
         const { resolve, reject, timeout } = queries.get(node.attrs.id);
