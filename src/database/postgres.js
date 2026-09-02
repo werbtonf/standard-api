@@ -27,9 +27,9 @@ export async function initDatabase() {
     const client = await pool.connect();
     logger.db('Conectado ao PostgreSQL com sucesso.');
 
-    // Inicializa as tabelas essenciais
+    // Inicializa as tabelas essenciais (prefixo wa_ para isolamento)
     await client.query(`
-      CREATE TABLE IF NOT EXISTS instances (
+      CREATE TABLE IF NOT EXISTS wa_instances (
         name VARCHAR(100) PRIMARY KEY,
         status VARCHAR(50) DEFAULT 'disconnected',
         apikey VARCHAR(255),
@@ -39,7 +39,7 @@ export async function initDatabase() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
-      CREATE TABLE IF NOT EXISTS messages (
+      CREATE TABLE IF NOT EXISTS wa_messages (
         id VARCHAR(100) PRIMARY KEY,
         instance_name VARCHAR(100) NOT NULL,
         remote_jid VARCHAR(100) NOT NULL,
@@ -51,7 +51,7 @@ export async function initDatabase() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
-      CREATE TABLE IF NOT EXISTS contacts (
+      CREATE TABLE IF NOT EXISTS wa_contacts (
         jid VARCHAR(100) NOT NULL,
         instance_name VARCHAR(100) NOT NULL,
         name VARCHAR(255),
@@ -62,12 +62,12 @@ export async function initDatabase() {
         PRIMARY KEY (jid, instance_name)
       );
 
-      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS profile_picture_url TEXT;
-      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS status_text TEXT;
+      ALTER TABLE wa_contacts ADD COLUMN IF NOT EXISTS profile_picture_url TEXT;
+      ALTER TABLE wa_contacts ADD COLUMN IF NOT EXISTS status_text TEXT;
 
-      CREATE INDEX IF NOT EXISTS idx_messages_instance ON messages(instance_name);
-      CREATE INDEX IF NOT EXISTS idx_messages_remote ON messages(remote_jid);
-      CREATE INDEX IF NOT EXISTS idx_contacts_instance ON contacts(instance_name);
+      CREATE INDEX IF NOT EXISTS idx_wa_messages_instance ON wa_messages(instance_name);
+      CREATE INDEX IF NOT EXISTS idx_wa_messages_remote ON wa_messages(remote_jid);
+      CREATE INDEX IF NOT EXISTS idx_wa_contacts_instance ON wa_contacts(instance_name);
     `);
 
     client.release();
@@ -100,7 +100,7 @@ export async function saveMessageToDb(instanceName, msgInfo) {
     const messageType = Object.keys(content)[0] || 'text';
 
     await pool.query(
-      `INSERT INTO messages (id, instance_name, remote_jid, from_me, message_type, content, status, timestamp)
+      `INSERT INTO wa_messages (id, instance_name, remote_jid, from_me, message_type, content, status, timestamp)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, content = EXCLUDED.content`,
       [id, instanceName, remoteJid, fromMe, messageType, JSON.stringify(content), 'DELIVERED', timestamp]
@@ -115,13 +115,13 @@ export async function upsertInstanceInDb(instanceName, data = {}) {
   try {
     const { status, apikey, ownerJid, webhookUrl } = data;
     await pool.query(
-      `INSERT INTO instances (name, status, apikey, owner_jid, webhook_url, updated_at)
+      `INSERT INTO wa_instances (name, status, apikey, owner_jid, webhook_url, updated_at)
        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
        ON CONFLICT (name) DO UPDATE SET
-         status = COALESCE($2, instances.status),
-         apikey = COALESCE($3, instances.apikey),
-         owner_jid = COALESCE($4, instances.owner_jid),
-         webhook_url = COALESCE($5, instances.webhook_url),
+         status = COALESCE($2, wa_instances.status),
+         apikey = COALESCE($3, wa_instances.apikey),
+         owner_jid = COALESCE($4, wa_instances.owner_jid),
+         webhook_url = COALESCE($5, wa_instances.webhook_url),
          updated_at = CURRENT_TIMESTAMP`,
       [instanceName, status || 'disconnected', apikey || null, ownerJid || null, webhookUrl || null]
     );
@@ -136,13 +136,13 @@ export async function upsertContactInDb(instanceName, contactData = {}) {
     const { jid, name, pushName, profilePictureUrl, statusText } = contactData;
     if (!jid) return;
     await pool.query(
-      `INSERT INTO contacts (jid, instance_name, name, push_name, profile_picture_url, status_text, updated_at)
+      `INSERT INTO wa_contacts (jid, instance_name, name, push_name, profile_picture_url, status_text, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
        ON CONFLICT (jid, instance_name) DO UPDATE SET
-         name = COALESCE($3, contacts.name),
-         push_name = COALESCE($4, contacts.push_name),
-         profile_picture_url = COALESCE($5, contacts.profile_picture_url),
-         status_text = COALESCE($6, contacts.status_text),
+         name = COALESCE($3, wa_contacts.name),
+         push_name = COALESCE($4, wa_contacts.push_name),
+         profile_picture_url = COALESCE($5, wa_contacts.profile_picture_url),
+         status_text = COALESCE($6, wa_contacts.status_text),
          updated_at = CURRENT_TIMESTAMP`,
       [jid, instanceName, name || null, pushName || null, profilePictureUrl || null, statusText || null]
     );
@@ -156,7 +156,7 @@ export async function listContactsFromDb(instanceName, limit = 50, offset = 0) {
   try {
     const res = await pool.query(
       `SELECT jid, instance_name, name, push_name, profile_picture_url, status_text, updated_at
-       FROM contacts
+       FROM wa_contacts
        WHERE instance_name = $1
        ORDER BY updated_at DESC
        LIMIT $2 OFFSET $3`,
@@ -172,7 +172,7 @@ export async function listContactsFromDb(instanceName, limit = 50, offset = 0) {
 export async function deleteInstanceFromDb(instanceName) {
   if (!isConnected || !pool) return;
   try {
-    await pool.query('DELETE FROM instances WHERE name = $1', [instanceName]);
+    await pool.query('DELETE FROM wa_instances WHERE name = $1', [instanceName]);
   } catch (e) {
     logger.debug('db', `Erro ao deletar instancia do DB: ${e.message}`);
   }
