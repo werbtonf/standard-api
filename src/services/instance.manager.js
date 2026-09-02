@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WhatsAppInstance } from './instance.service.js';
