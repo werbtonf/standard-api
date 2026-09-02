@@ -108,6 +108,7 @@ export async function connectWA(options = {}) {
     let isAuthenticated = false;
     let keepAliveReq;
     let pairResolve;
+    let lastPrekeyRotate = 0;
     const queries = new Map();
     let lastDateRecv = Date.now();
 
@@ -395,8 +396,16 @@ export async function connectWA(options = {}) {
                 } catch (err) {
                   console.error('[message decrypt fail]', senderJid, err.message);
                   const msg = String(err.message || '');
-                  if (/Key used already|never filled|Chain closed|Bad MAC|No matching sessions/.test(msg)) {
+                  if (/Key used already|never filled|Chain closed|Bad MAC|No matching sessions|Invalid PreKey ID/.test(msg)) {
                     signalRepo.clearSessions(senderJid);
+                    const now = Date.now();
+                    if (now - lastPrekeyRotate > 60000) {
+                      lastPrekeyRotate = now;
+                      console.log('[signal] rotacionando pre-chaves para recuperar sessao...');
+                      await signPreKeys(creds, 30);
+                      ev.emit('creds.update', {});
+                      uploadPreKeys(conn.query, creds, ev).catch((e) => console.warn('[signal] uploadPreKeys apos rotacao falhou:', e.message));
+                    }
                   }
                   // Try decrypting with senderPn JID if different from senderJid
                   if (senderPn) {
