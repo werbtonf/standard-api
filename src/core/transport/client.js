@@ -276,6 +276,20 @@ export async function connectWA(options = {}) {
           break;
         case 'ib':
           ev.emit('ib', node);
+          const offlinePreviewNode = getBinaryNodeChild(node, 'offline_preview');
+          if (offlinePreviewNode) {
+            console.log('[sync] offline_preview recebido, solicitando lote offline');
+            sock.sendNode({
+              tag: 'ib',
+              attrs: {},
+              content: [{ tag: 'offline_batch', attrs: { count: '100' } }]
+            }).catch((e) => console.warn('[sync] offline_batch erro ao enviar:', e.message));
+          }
+          const offlineDoneNode = getBinaryNodeChild(node, 'offline');
+          if (offlineDoneNode) {
+            const offlineNotifs = +(offlineDoneNode.attrs?.count || 0);
+            console.log(`[sync] lote offline processado: ${offlineNotifs} mensagens/notificacoes`);
+          }
           const edgeRoutingNode = getBinaryNodeChild(node, 'edge_routing');
           if (edgeRoutingNode) {
             const routingInfoNode = getBinaryNodeChild(edgeRoutingNode, 'routing_info');
