@@ -332,17 +332,22 @@ export async function connectWA(options = {}) {
             let status = 'DELIVERY_ACK';
             if (receiptType === 'read' || receiptType === 'read-self') {
               status = 'READ';
-            } else if (receiptType === 'server-error' || receiptType === 'error') {
+            } else if (receiptType === 'server-error' || receiptType === 'error' || receiptType === 'retry') {
               status = 'ERROR';
             }
+
+            const key = {
+              id: receiptId,
+              remoteJid: receiptFrom,
+              fromMe: true
+            };
+            if (node.attrs.participant) key.participant = node.attrs.participant;
+
             const updatePayload = {
-              key: {
-                id: receiptId,
-                remoteJid: receiptFrom,
-                fromMe: true
-              },
+              key,
               update: {
-                status
+                status,
+                ...(receiptType === 'retry' ? { retryCount: +(node.attrs.count || 0), retry: true } : {})
               }
             };
             ev.emit('messages.update', [updatePayload]);
@@ -365,6 +370,7 @@ export async function connectWA(options = {}) {
                 }
               };
               ev.emit('messages.update', [updatePayload]);
+              ev.emit('receipts.update', [node]);
             }
           })();
           break;
