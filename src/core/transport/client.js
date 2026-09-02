@@ -114,7 +114,11 @@ export async function connectWA(options = {}) {
     const startKeepAlive = () => {
       if (keepAliveReq) return;
       keepAliveReq = setInterval(() => {
-        if (!sock.isOpen) return;
+        if (!sock.isOpen) {
+          console.warn('[keepAlive] socket fechado. Reconectando...');
+          reconnect();
+          return;
+        }
         const diff = Date.now() - lastDateRecv;
         if (diff > keepAliveIntervalMs + 15000) {
           console.warn(`[keepAlive] Conexao inativa ha ${Math.round(diff / 1000)}s. Reconectando...`);
@@ -503,6 +507,16 @@ export async function connectWA(options = {}) {
     await new Promise((resolve, reject) => {
       sock.once('open', resolve);
       sock.once('error', reject);
+    });
+
+    sock.on('close', (code, reason) => {
+      if (isAuthenticated) {
+        console.warn(`[socket] conexao fechada (code=${code} reason=${reason || ''}). Reconectando...`);
+        ev.emit('connection.update', {
+          connection: 'close',
+          lastDisconnect: { error: new Error(`ws closed (${code}): ${reason || ''}`) }
+        });
+      }
     });
 
     const helloMsg = encodeHandshakeMessage({
