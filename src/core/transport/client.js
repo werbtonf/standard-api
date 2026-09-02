@@ -20,9 +20,7 @@ import {
   fetchBlocklist,
   updateProfileStatus,
   rememberLidMapping,
-  resolveLidToPn,
-  cachedLidForPn,
-  getLidForPn
+  resolveLidToPn
 } from '../crypto/signal.js';
 import { encodeMessage, decodeMessage } from '../../services/message.service.js';
 import { prepareMediaMessage, downloadReceivedMedia, getReceivedMediaInfo } from '../../services/media.service.js';
@@ -690,42 +688,17 @@ export async function connectWA(options = {}) {
       return true;
     });
 
-    // Migração de devices para LID: o servidor de pré-chaves responde apenas
-    // para endereços LID do destinatário (Baileys usa usync context=message +
-    // LID protocol e fetch por LID). Sem cópia para cada device, o WhatsApp
-    // mostra "Waiting for message" nos dispositivos periféricos (web/desktop).
-    let encryptDevices = filteredDevices;
-    try {
-      let lidJid = cachedLidForPn(canonicalJid);
-      if (!lidJid) {
-        const r = await getLidForPn(conn.query, canonicalJid);
-        if (r.lid) {
-          lidJid = r.lid;
-          rememberLidMapping(r.lid, r.pnJid || canonicalJid);
-        }
-      }
-      if (lidJid) {
-        const lidUser = String(lidJid).split('@')[0];
-        encryptDevices = filteredDevices.map(d => ({
-          id: d.id,
-          jid: d.id === 0 ? `${lidUser}@lid` : `${lidUser}@lid:${d.id}`,
-          keyIndex: undefined
-        }));
-        console.log(`[sendMessage] devices via LID: [${encryptDevices.map(d => d.jid).join(', ')}]`);
-      } else {
-        console.log('[sendMessage] sem mapeamento LID p/ o destinatário; usando PN');
-      }
-    } catch (e) {
-      console.warn('[sendMessage] falha ao resolver LID do destinatário:', e.message);
-    }
-
-    await fetchPreKeys(conn.query, encryptDevices, signalRepo, 5000)
-      .catch((e) => console.warn('[sendMessage] falha na busca de pré-chaves:', e.message));
+    // Busca pré-chaves do device primário (id 0). Companions exigem os
+    // endereços LID do destinatário (usync context=message + LID protocol);
+    // buscar por PN causa timeout no servidor — upgrade de devices LID
+    // será feito à parte. Envio continua instantâneo e entregue no phone.
+    const primaryDevices = filteredDevices.filter(d => d.id === 0);
+    await fetchPreKeys(conn.query, primaryDevices, signalRepo, 5000);
 
     const participantNodes = [];
     let shouldIncludeDeviceIdentity = false;
 
-    for (const dev of encryptDevices) {
+    for (const dev of filteredDevices) {
       const deviceJid = dev.jid;
       const hasSess = await signalRepo.hasSession(deviceJid);
       if (!hasSess) {
