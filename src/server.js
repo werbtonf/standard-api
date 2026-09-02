@@ -25,8 +25,7 @@ await fastify.register(cors, {
 await fastify.register(swagger, {
   openapi: {
     info: {
-      title: 'standard-api - WhatsApp Multi-Instance REST API',
-      description: 'API REST Multi-Instâncias de alta performance para WhatsApp Web (estilo Evolution / Z-API), implementada em Node.js com criptografia Noise XX, Signal Protocol E2EE, Envio de Mídias para CDN e Segurança por API Key.',
+      title: 'Standard API',
       version: '1.0.0'
     },
     components: {
@@ -43,10 +42,10 @@ await fastify.register(swagger, {
       { apiKeyHeader: [] }
     ],
     tags: [
-      { name: 'Instance', description: 'Gerenciamento de Múltiplas Instâncias (Criar, Listar, Conectar, QR Code, Deletar)' },
-      { name: 'Messages', description: 'Envio de Mensagens de Texto e Mídias (Imagens, Áudios/PTT, Documentos, Vídeos, Stickers)' },
-      { name: 'Contact', description: 'Consulta de Números no WhatsApp, Foto de Perfil, Recado/Bio e Bloqueio' },
-      { name: 'Webhook', description: 'Configuração de Webhooks para Recepção de Eventos em Tempo Real' }
+      { name: 'Instance' },
+      { name: 'Messages' },
+      { name: 'Contact' },
+      { name: 'Webhook' }
     ]
   }
 });
@@ -153,7 +152,6 @@ fastify.post('/instance/create', {
   schema: {
     tags: ['Instance'],
     summary: 'Criar Nova Instância',
-    description: 'Cria e inicializa uma nova instância independente do WhatsApp (ex: "vendas", "suporte", "atendimento").',
     body: {
       type: 'object',
       required: ['instanceName'],
@@ -197,7 +195,6 @@ fastify.get('/instance/list', {
   schema: {
     tags: ['Instance'],
     summary: 'Listar Todas as Instâncias',
-    description: 'Retorna a lista de todas as instâncias ativas com seus respectivos status e números conectados.',
     response: {
       200: {
         type: 'array',
@@ -231,7 +228,6 @@ fastify.get('/instance/status/:instanceName', {
   schema: {
     tags: ['Instance'],
     summary: 'Status da Instância',
-    description: 'Retorna o estado da conexão e dados da conta de uma instância específica.',
     params: {
       type: 'object',
       properties: {
@@ -269,7 +265,6 @@ fastify.get('/instance/qr/:instanceName', {
   schema: {
     tags: ['Instance'],
     summary: 'Obter QR Code da Instância',
-    description: 'Retorna o QR Code ativo em JSON (base64) para pareamento no WhatsApp.',
     params: {
       type: 'object',
       properties: {
@@ -298,7 +293,6 @@ fastify.post('/instance/connect/:instanceName', {
   schema: {
     tags: ['Instance'],
     summary: 'Conectar Instância',
-    description: 'Inicia o processo de conexão ou gera um novo QR Code para a instância.',
     params: {
       type: 'object',
       properties: {
@@ -320,7 +314,6 @@ fastify.post('/instance/logout/:instanceName', {
   schema: {
     tags: ['Instance'],
     summary: 'Desconectar Instância',
-    description: 'Encerra a conexão e limpa a sessão da instância especificada.',
     params: {
       type: 'object',
       properties: {
@@ -339,7 +332,6 @@ fastify.delete('/instance/delete/:instanceName', {
   schema: {
     tags: ['Instance'],
     summary: 'Deletar Instância',
-    description: 'Desconecta e apaga permanentemente a instância e seus arquivos de sessão.',
     params: {
       type: 'object',
       properties: {
@@ -360,7 +352,6 @@ fastify.post('/message/send-text/:instanceName', {
   schema: {
     tags: ['Messages'],
     summary: 'Enviar Mensagem de Texto por Instância',
-    description: 'Envia uma mensagem de texto cifrada com Signal Protocol E2EE utilizando uma instância específica.',
     params: {
       type: 'object',
       properties: {
@@ -441,7 +432,6 @@ fastify.post('/message/send-media/:instanceName', {
   schema: {
     tags: ['Messages'],
     summary: 'Enviar Mídia por Instância',
-    description: 'Envia imagem, áudio/gravação de voz (PTT), documento/PDF, vídeo ou figurinha (sticker) com upload seguro para a CDN do WhatsApp.',
     params: {
       type: 'object',
       properties: {
@@ -559,7 +549,6 @@ fastify.post('/webhook/set/:instanceName', {
   schema: {
     tags: ['Webhook'],
     summary: 'Configurar Webhook da Instância',
-    description: 'Configura o endpoint HTTP para receber eventos em tempo real (novas mensagens, atualizações de conexão, recibos de leitura).',
     params: {
       type: 'object',
       properties: {
@@ -624,7 +613,6 @@ fastify.get('/webhook/find/:instanceName', {
   schema: {
     tags: ['Webhook'],
     summary: 'Consultar Webhook da Instância',
-    description: 'Retorna a configuração atual de webhook da instância especificada.',
     params: {
       type: 'object',
       properties: {
@@ -659,7 +647,6 @@ fastify.post('/contact/check-number/:instanceName', {
   schema: {
     tags: ['Contact'],
     summary: 'Verificar Número no WhatsApp',
-    description: 'Verifica se um ou mais números estão registrados no WhatsApp e obtém seus JIDs canônicos.',
     params: {
       type: 'object',
       properties: {
@@ -730,7 +717,6 @@ fastify.post('/contact/profile-picture/:instanceName', {
   schema: {
     tags: ['Contact'],
     summary: 'Obter Foto de Perfil do Contato',
-    description: 'Recupera a URL pública direta da foto de perfil de um contato ou grupo no CDN do WhatsApp.',
     params: {
       type: 'object',
       properties: {
@@ -779,7 +765,6 @@ fastify.post('/contact/status/:instanceName', {
   schema: {
     tags: ['Contact'],
     summary: 'Obter Status/Recado do Contato',
-    description: 'Consulta o texto de "Sobre" / Recado do perfil de um contato.',
     params: {
       type: 'object',
       properties: {
@@ -828,7 +813,6 @@ fastify.post('/contact/block/:instanceName', {
   schema: {
     tags: ['Contact'],
     summary: 'Bloquear / Desbloquear Contato',
-    description: 'Bloqueia ou desbloqueia um contato no WhatsApp da instância.',
     params: {
       type: 'object',
       properties: {
@@ -867,7 +851,6 @@ fastify.get('/contact/blocklist/:instanceName', {
   schema: {
     tags: ['Contact'],
     summary: 'Listar Contatos Bloqueados',
-    description: 'Retorna a lista de todos os contatos bloqueados na conta do WhatsApp.',
     params: {
       type: 'object',
       properties: {
@@ -896,7 +879,6 @@ fastify.post('/contact/update-profile-status/:instanceName', {
   schema: {
     tags: ['Contact'],
     summary: 'Atualizar Recado do Próprio Perfil',
-    description: 'Altera o status/recado do WhatsApp da instância conectada.',
     params: {
       type: 'object',
       properties: {
@@ -933,7 +915,6 @@ fastify.get('/contact/list/:instanceName', {
   schema: {
     tags: ['Contact'],
     summary: 'Listar Contatos Salvos no Banco',
-    description: 'Retorna os contatos registrados e salvos no PostgreSQL para a instância.',
     params: {
       type: 'object',
       properties: {
