@@ -23,7 +23,7 @@ import {
   resolveLidToPn
 } from '../crypto/signal.js';
 import { encodeMessage, decodeMessage } from '../../services/message.service.js';
-import { prepareMediaMessage } from '../../services/media.service.js';
+import { prepareMediaMessage, downloadReceivedMedia, getReceivedMediaInfo } from '../../services/media.service.js';
 import { logger } from '../../utils/logger.js';
 import {
   WA_WS_URL,
@@ -502,6 +502,20 @@ export async function connectWA(options = {}) {
                 remoteJidAlt = senderPn.includes('@') ? senderPn : `${senderPn.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
               }
 
+              let mediaBase64 = null;
+              if (decodedMsg && !decodedMsg.rawError) {
+                const mediaInfo = getReceivedMediaInfo(decodedMsg);
+                if (mediaInfo) {
+                  try {
+                    const dl = await downloadReceivedMedia(mediaInfo.fields, mediaInfo.shortType);
+                    mediaBase64 = Buffer.from(dl.buffer).toString('base64');
+                    console.log(`[INCOMING] mídia ${mediaInfo.shortType} baixada/decifrada (${dl.fileLength} bytes, mimetype=${dl.mimetype})`);
+                  } catch (e) {
+                    console.warn(`[media] falha ao obter mídia recebida (${mediaInfo.shortType}):`, e.message);
+                  }
+                }
+              }
+
               const msgInfo = {
                 key: {
                   remoteJid: from,
@@ -515,6 +529,9 @@ export async function connectWA(options = {}) {
                 message: decodedMsg,
                 messageTimestamp: +node.attrs.t || Math.floor(Date.now() / 1000)
               };
+              if (mediaBase64) {
+                msgInfo.base64 = mediaBase64;
+              }
 
               ev.emit('messages.upsert', { messages: [msgInfo], type: 'notify' });
               ev.emit('message', msgInfo);

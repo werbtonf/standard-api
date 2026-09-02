@@ -240,6 +240,67 @@ export async function getMediaBuffer(input) {
 }
 
 /**
+ * Baixa e decifra uma mídia recebida (CDN do WhatsApp + Media Cipher).
+ * msgFields: url/directPath, mediaKey, fileEncSha256, fileSha256.
+ * Retorna { buffer, mimetype, fileLength, mediaType } ou lança erro.
+ */
+export async function downloadReceivedMedia(msgFields, mediaType, { maxBytes = 100 * 1024 * 1024 } = {}) {
+  const url = msgFields.url || (msgFields.directPath ? `https://mmg.whatsapp.net${msgFields.directPath}` : '');
+  if (!url) throw new Error('Mídia sem URL/directPath para download.');
+
+  const mediaKey = msgFields.mediaKey;
+  if (!mediaKey) throw new Error('Mídia sem mediaKey para decifrar.');
+
+  const keyBuf = Buffer.isBuffer(mediaKey) ? mediaKey : Buffer.from(mediaKey);
+  const fileEncShaBuf = msgFields.fileEncSha256 ? (Buffer.isBuffer(msgFields.fileEncSha256) ? msgFields.fileEncSha256 : Buffer.from(msgFields.fileEncSha256)) : null;
+  const fileShaBuf = msgFields.fileSha256 ? (Buffer.isBuffer(msgFields.fileSha256) ? msgFields.fileSha256 : Buffer.from(msgFields.fileSha256)) : null;
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if (!res.ok) throw new Error(`Download da mídia falhou (HTTP ${res.status})`);
+  const encBuffer = Buffer.from(await res.arrayBuffer());
+
+  if (fileEncShaBuf && !sha256(encBuffer).equals(fileEncShaBuf)) {
+    throw new Error('Integridade do arquivo cifrado falhou (fileEncSha256).');
+  }
+  if (encBuffer.length > maxBytes) throw new Error(`Mídia excede ${maxBytes} bytes.`);
+
+  const plainBuffer = decryptMedia(encBuffer, keyBuf, mediaType);
+
+  if (fileShaBuf && !sha256(plainBuffer).equals(fileShaBuf)) {
+    throw new Error('Integridade do conteúdo falhou (fileSha256).');
+  }
+
+  return {
+    buffer: plainBuffer,
+    mediaType,
+    mimetype: msgFields.mimetype || 'application/octet-stream',
+    fileLength: plainBuffer.length,
+    filename: msgFields.fileName || msgFields.title || null,
+    ptt: Boolean(msgFields.ptt),
+    seconds: Number(msgFields.seconds || 0),
+    caption: msgFields.caption || ''
+  };
+}
+
+export const RECEIVED_MEDIA_TYPES = new Set(['image', 'audio', 'document', 'video', 'sticker']);
+
+/**
+ * Identifica o tipo de mídia de um Message já decodificado (plain).
+ */
+export function getReceivedMediaInfo(decodedMessage) {
+  if (!decodedMessage) return null;
+  for (const type of ['imageMessage', 'audioMessage', 'documentMessage', 'videoMessage', 'stickerMessage']) {
+    const fields = decodedMessage[type];
+    if (fields) {
+      const shortType = type.replace('Message', '');
+      if (!shortType || !RECEIVED_MEDIA_TYPES.has(shortType)) return null;
+      return { shortType, fields };
+    }
+  }
+  return null;
+}
+
+/**
  * Prepara o objeto Message do WhatsApp com os metadados e upload completos.
  */
 export async function prepareMediaMessage(query, { media, type, caption, fileName, mimetype, ptt, seconds, sessionDir }) {
