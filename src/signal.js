@@ -418,7 +418,6 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
 
   if (queryItems.length === 0) return [];
 
-  // Checa cache em memória primeiro
   const phoneResults = new Map(); // phone -> { exists, jid }
   const phonesToFetch = [];
 
@@ -429,13 +428,12 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
       if (cached && cached.expiresAt > now) {
         phoneResults.set(p, { exists: cached.exists, jid: cached.jid });
         foundInCache = true;
+        break;
       }
     }
     if (!foundInCache) {
-      for (const p of item.variants) {
-        if (!phonesToFetch.includes(p)) {
-          phonesToFetch.push(p);
-        }
+      if (!phonesToFetch.includes(item.primary)) {
+        phonesToFetch.push(item.primary);
       }
     }
   }
@@ -507,7 +505,7 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
               jid: isContactIn ? jid : null
             };
             phoneResults.set(phoneClean, entry);
-            usyncContactCache.set(phoneClean, { ...entry, expiresAt: now + (30 * 60 * 1000) });
+            usyncContactCache.set(phoneClean, { ...entry, expiresAt: now + (60 * 60 * 1000) });
           }
         }
 
@@ -517,12 +515,11 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
             jid
           };
           phoneResults.set(jidUser, entry);
-          usyncContactCache.set(jidUser, { ...entry, expiresAt: now + (30 * 60 * 1000) });
+          usyncContactCache.set(jidUser, { ...entry, expiresAt: now + (60 * 60 * 1000) });
         }
       }
     } catch (err) {
       logger.warn('contact', `Erro ao verificar lote de números USync: ${err.message}`);
-      // Se deu timeout mas não tínhamos cache, re-lança o erro informativo
       if (phoneResults.size === 0) {
         throw new Error(`Falha ao verificar números no WhatsApp: ${err.message}`);
       }
@@ -567,119 +564,98 @@ export async function checkWhatsAppNumber(query, number) {
  * Obtém a URL da foto de perfil de um contato ou grupo no WhatsApp CDN.
  */
 export async function fetchProfilePictureUrl(query, jidOrNumber, type = 'image') {
-  let clean = String(jidOrNumber).trim();
-  const jidsToTry = [];
+  let targetJid = String(jidOrNumber).trim();
 
-  if (clean.includes('@')) {
-    jidsToTry.push(clean);
-  } else {
-    const formatted = formatPhoneNumber(clean);
-    jidsToTry.push(`${formatted}@s.whatsapp.net`);
-
-    if (formatted.startsWith('55')) {
-      if (formatted.length === 13 && formatted[4] === '9') {
-        const withoutNine = `55${formatted.slice(2, 4)}${formatted.slice(5)}@s.whatsapp.net`;
-        jidsToTry.push(withoutNine);
-      } else if (formatted.length === 12) {
-        const withNine = `55${formatted.slice(2, 4)}9${formatted.slice(4)}@s.whatsapp.net`;
-        jidsToTry.push(withNine);
+  // Se não é grupo (@g.us) e não tem @, resolve o JID canônico
+  if (!targetJid.includes('@g.us')) {
+    if (!targetJid.includes('@')) {
+      const check = await checkWhatsAppNumber(query, targetJid);
+      if (check.exists && check.jid) {
+        targetJid = check.jid;
+      } else {
+        targetJid = `${formatPhoneNumber(targetJid)}@s.whatsapp.net`;
       }
     }
   }
 
-  for (const jid of jidsToTry) {
-    try {
-      const res = await query({
-        tag: 'iq',
-        attrs: {
-          target: jid,
-          to: '@s.whatsapp.net',
-          type: 'get',
-          xmlns: 'w:profile:picture'
-        },
-        content: [
-          {
-            tag: 'picture',
-            attrs: { type: type === 'preview' ? 'preview' : 'image', query: 'url' }
-          }
-        ]
-      }, 8000);
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: {
+        target: targetJid,
+        to: '@s.whatsapp.net',
+        type: 'get',
+        xmlns: 'w:profile:picture'
+      },
+      content: [
+        {
+          tag: 'picture',
+          attrs: { type: type === 'preview' ? 'preview' : 'image', query: 'url' }
+        }
+      ]
+    }, 10000);
 
-      const pictureNode = (res.content || []).find(c => c && c.tag === 'picture');
-      const url = pictureNode?.attrs?.url || null;
-      if (url) return url;
-    } catch (err) {
-      logger.debug('contact', `Foto de perfil nao disponivel para ${jid}: ${err.message}`);
-    }
+    const pictureNode = (res.content || []).find(c => c && c.tag === 'picture');
+    return pictureNode?.attrs?.url || null;
+  } catch (err) {
+    logger.debug('contact', `Foto de perfil nao disponivel para ${targetJid}: ${err.message}`);
+    return null;
   }
-
-  return null;
 }
 
 /**
  * Obtém o status (Recado / Sobre) de um contato.
  */
 export async function fetchContactStatus(query, jidOrNumber) {
-  let clean = String(jidOrNumber).trim();
-  const jidsToTry = [];
+  let targetJid = String(jidOrNumber).trim();
 
-  if (clean.includes('@')) {
-    jidsToTry.push(clean);
-  } else {
-    const formatted = formatPhoneNumber(clean);
-    jidsToTry.push(`${formatted}@s.whatsapp.net`);
-
-    if (formatted.startsWith('55')) {
-      if (formatted.length === 13 && formatted[4] === '9') {
-        const withoutNine = `55${formatted.slice(2, 4)}${formatted.slice(5)}@s.whatsapp.net`;
-        jidsToTry.push(withoutNine);
-      } else if (formatted.length === 12) {
-        const withNine = `55${formatted.slice(2, 4)}9${formatted.slice(4)}@s.whatsapp.net`;
-        jidsToTry.push(withNine);
-      }
+  if (!targetJid.includes('@')) {
+    const check = await checkWhatsAppNumber(query, targetJid);
+    if (check.exists && check.jid) {
+      targetJid = check.jid;
+    } else {
+      targetJid = `${formatPhoneNumber(targetJid)}@s.whatsapp.net`;
     }
   }
 
-  for (const jid of jidsToTry) {
-    try {
-      const res = await query({
-        tag: 'iq',
-        attrs: {
-          to: '@s.whatsapp.net',
-          type: 'get',
-          xmlns: 'status'
-        },
-        content: [
-          {
-            tag: 'status',
-            attrs: {},
-            content: [{ tag: 'user', attrs: { jid } }]
-          }
-        ]
-      }, 8000);
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: {
+        to: '@s.whatsapp.net',
+        type: 'get',
+        xmlns: 'status'
+      },
+      content: [
+        {
+          tag: 'status',
+          attrs: {},
+          content: [{ tag: 'user', attrs: { jid: targetJid } }]
+        }
+      ]
+    }, 10000);
 
-      const statusNode = (res.content || []).find(c => c && c.tag === 'status');
-      const userNode = statusNode ? (statusNode.content || []).find(c => c && c.tag === 'user') : null;
+    const statusNode = (res.content || []).find(c => c && c.tag === 'status');
+    const userNode = statusNode ? (statusNode.content || []).find(c => c && c.tag === 'user') : null;
 
-      if (userNode) {
-        const text = userNode.content
-          ? (Buffer.isBuffer(userNode.content) ? userNode.content.toString('utf-8') : String(userNode.content))
-          : '';
-        const setAt = userNode.attrs?.t ? new Date(+userNode.attrs.t * 1000).toISOString() : null;
+    if (userNode) {
+      const text = userNode.content
+        ? (Buffer.isBuffer(userNode.content) ? userNode.content.toString('utf-8') : String(userNode.content))
+        : '';
+      const setAt = userNode.attrs?.t ? new Date(+userNode.attrs.t * 1000).toISOString() : null;
 
-        return {
-          jid,
-          status: text,
-          setAt
-        };
-      }
-    } catch (err) {
-      logger.debug('contact', `Status nao disponivel para ${jid}: ${err.message}`);
+      return {
+        jid: targetJid,
+        status: text,
+        setAt
+      };
     }
+  } catch (err) {
+    logger.debug('contact', `Status nao disponivel para ${targetJid}: ${err.message}`);
   }
 
   return {
-    jid: jidsToTry[0],
+    jid: targetJid,
     status: '',
     setAt: null
   };
