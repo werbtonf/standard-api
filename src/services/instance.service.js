@@ -117,6 +117,22 @@ export class WhatsAppInstance {
 
     const startTime = Date.now();
     try {
+      const response = await this._deliverWebhook(payload);
+      const duration = Date.now() - startTime;
+      if (response.ok) {
+        logger.webhook(this.name, `Evento "${event}" enviado para ${this.webhook.url} (HTTP ${response.status} - ${duration}ms)`);
+      } else {
+        logger.warn(this.name, `Falha ao entregar webhook "${event}" em ${this.webhook.url} (HTTP ${response.status} - ${duration}ms)`);
+      }
+    } catch (err) {
+      const duration = Date.now() - startTime;
+      logger.warn(this.name, `Falha ao entregar webhook "${event}" em ${this.webhook.url} (${duration}ms): ${err.message}`);
+    }
+  }
+
+  async _deliverWebhook(payload, attempt = 0) {
+    const maxAttempts = 3;
+    try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
 
@@ -131,11 +147,14 @@ export class WhatsAppInstance {
         signal: controller.signal
       });
       clearTimeout(timeout);
-      const duration = Date.now() - startTime;
-      logger.webhook(this.name, `Evento "${event}" enviado para ${this.webhook.url} (HTTP ${res.status} - ${duration}ms)`);
+      return res;
     } catch (err) {
-      const duration = Date.now() - startTime;
-      logger.warn(this.name, `Falha ao entregar webhook "${event}" em ${this.webhook.url} (${duration}ms): ${err.message}`);
+      if (attempt < maxAttempts - 1) {
+        const delay = 500 * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, delay));
+        return this._deliverWebhook(payload, attempt + 1);
+      }
+      throw err;
     }
   }
 
