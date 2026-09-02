@@ -725,32 +725,6 @@ fastify.post('/contact/check-number/:instanceName', {
   };
 });
 
-fastify.post('/contact/check-number', {
-  schema: {
-    tags: ['Contact'],
-    summary: 'Verificar Número no WhatsApp (Instância Padrão)'
-  }
-}, async (request) => {
-  const instance = manager.getInstance('default');
-  const { number, numbers } = request.body || {};
-  const targets = [];
-  if (typeof number === 'string' && number.trim()) {
-    targets.push(number.trim());
-  }
-  if (Array.isArray(numbers)) {
-    for (const n of numbers) {
-      if (typeof n === 'string' && n.trim() && !targets.includes(n.trim())) {
-        targets.push(n.trim());
-      }
-    }
-  }
-  if (targets.length === 0) {
-    throw new Error('Forneça "number" (string) ou "numbers" (array de strings).');
-  }
-  const results = await instance.checkNumbers(targets);
-  return { status: 'SUCCESS', instanceName: 'default', results };
-});
-
 // Obter Foto de Perfil do Contato
 fastify.post('/contact/profile-picture/:instanceName', {
   schema: {

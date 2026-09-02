@@ -455,7 +455,7 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
           ]
         }
       ]
-    }, 6000);
+    }, 10000);
 
     const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
     const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
@@ -468,14 +468,9 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
 
       // Processa todos os nós de contato retornados
       const contactNodes = (userNode.content || []).filter(c => c && c.tag === 'contact');
-      let isRegistered = Boolean(jid);
 
       for (const contactNode of contactNodes) {
-        if (contactNode.attrs?.type === 'out') {
-          isRegistered = false;
-          continue;
-        }
-
+        const isContactIn = contactNode.attrs?.type !== 'out';
         const rawContent = contactNode.content;
         let phoneText = null;
         if (rawContent) {
@@ -493,21 +488,22 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
         const phoneClean = phoneText ? phoneText.replace(/[^0-9]/g, '') : null;
         if (phoneClean) {
           phoneResults.set(phoneClean, {
-            exists: isRegistered,
-            jid
+            exists: isContactIn,
+            jid: isContactIn ? jid : null
           });
         }
       }
 
       if (jidUser) {
         phoneResults.set(jidUser, {
-          exists: isRegistered,
+          exists: true,
           jid
         });
       }
     }
   } catch (err) {
-    logger.debug('contact', `Erro ao verificar lote de numeros USync: ${err.message}`);
+    logger.warn('contact', `Erro ao verificar lote de números USync: ${err.message}`);
+    throw new Error(`Falha ao verificar números no WhatsApp: ${err.message}`);
   }
 
   // Mapeia de volta para cada entrada original
