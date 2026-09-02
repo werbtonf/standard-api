@@ -338,8 +338,7 @@ export class WhatsAppInstance {
     const result = await this.client.checkNumber(number);
     if (result.exists && result.jid) {
       upsertContactInDb(this.name, {
-        jid: result.jid,
-        statusText: result.status
+        jid: result.jid
       });
     }
     return result;
@@ -353,8 +352,7 @@ export class WhatsAppInstance {
     for (const res of results) {
       if (res.exists && res.jid) {
         upsertContactInDb(this.name, {
-          jid: res.jid,
-          statusText: res.status
+          jid: res.jid
         });
       }
     }
@@ -365,11 +363,19 @@ export class WhatsAppInstance {
     if (this.status !== 'open' || !this.client) {
       throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
     }
-    const url = await this.client.profilePictureUrl(number, type);
-    const jid = String(number).includes('@') ? number : `${number}@s.whatsapp.net`;
-    if (url) {
+    const check = await this.client.checkNumber(number);
+    if (!check.exists) {
+      return {
+        instanceName: this.name,
+        number,
+        profilePictureUrl: null
+      };
+    }
+    const canonicalJid = check.jid;
+    const url = await this.client.profilePictureUrl(canonicalJid, type);
+    if (url && canonicalJid) {
       upsertContactInDb(this.name, {
-        jid,
+        jid: canonicalJid,
         profilePictureUrl: url
       });
     }
@@ -384,16 +390,27 @@ export class WhatsAppInstance {
     if (this.status !== 'open' || !this.client) {
       throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
     }
-    const result = await this.client.fetchStatus(number);
-    if (result.status && result.jid) {
+    const check = await this.client.checkNumber(number);
+    if (!check.exists) {
+      return {
+        instanceName: this.name,
+        jid: null,
+        status: '',
+        setAt: null
+      };
+    }
+    const canonicalJid = check.jid;
+    const result = await this.client.fetchStatus(canonicalJid);
+    if (canonicalJid) {
       upsertContactInDb(this.name, {
-        jid: result.jid,
-        statusText: result.status
+        jid: canonicalJid,
+        statusText: result.status || null
       });
     }
     return {
       instanceName: this.name,
-      ...result
+      ...result,
+      jid: canonicalJid
     };
   }
 
