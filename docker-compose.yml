@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  standard-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: standard-api
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - NODE_ENV=production
+      - GLOBAL_API_KEY=${GLOBAL_API_KEY:-standard_secret_key_123456}
+      - DATABASE_ENABLED=${DATABASE_ENABLED:-true}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-standard}:${POSTGRES_PASSWORD:-standard_password}@postgres:5432/${POSTGRES_DB:-standard_api}?sslmode=disable
+      - REDIS_ENABLED=${REDIS_ENABLED:-true}
+      - REDIS_URL=redis://redis:6379
+      - SESSIONS_DIR=/app/sessions
+    volumes:
+      - ./sessions:/app/sessions
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - standard_network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: standard-api-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-standard}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-standard_password}
+      - POSTGRES_DB=${POSTGRES_DB:-standard_api}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-standard} -d ${POSTGRES_DB:-standard_api}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - standard_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: standard-api-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - standard_network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  standard_network:
+    driver: bridge

@@ -3,6 +3,8 @@ import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { InstanceManager } from './instance.js';
+import { initDatabase } from './db.js';
+import { initRedis } from './redis.js';
 
 const fastify = Fastify({
   logger: {
@@ -848,6 +850,8 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 try {
+  await initDatabase();
+  await initRedis();
   await manager.initAll();
   await fastify.listen({ port: PORT, host: HOST });
   console.log(`\nstandard-api Multi-Instance REST rodando em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);

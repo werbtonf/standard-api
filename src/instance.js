@@ -4,6 +4,7 @@ import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from '
 import { readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import QRCode from 'qrcode';
+import { saveMessageToDb } from './db.js';
 
 export class WhatsAppInstance {
   constructor(name, options = {}) {
@@ -211,6 +212,11 @@ export class WhatsAppInstance {
       // Webhook para novas mensagens recebidas
       this.client.ev.on('messages.upsert', (data) => {
         this.dispatchWebhook('messages.upsert', data);
+        if (data?.messages) {
+          for (const msg of data.messages) {
+            saveMessageToDb(this.name, msg);
+          }
+        }
       });
 
       // Webhook para recibos de entrega/leitura

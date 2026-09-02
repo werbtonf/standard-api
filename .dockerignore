@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.env
+.env.local
+sessions/*
+!sessions/.gitkeep
+.gemini
+*.log
+scratch
+TODO.md
+HANDOVER.md

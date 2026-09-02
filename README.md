@@ -128,8 +128,36 @@ curl -X POST http://localhost:3000/webhook/set/default \
 
 ---
 
+## Executando com Docker e Docker Compose
+
+O projeto já conta com uma stack completa pronta para produção:
+- **`standard-api`**: Container Node.js 20 Alpine multi-stage otimizado.
+- **`postgres`**: PostgreSQL 16 com volume persistente para instâncias e mensagens.
+- **`redis`**: Redis 7 Alpine com volume persistente para cache distribuído e filas.
+
+### 1. Iniciar toda a stack (API + PostgreSQL + Redis):
+```bash
+cp .env.example .env
+docker compose up -d
+```
+
+### 2. Verificar logs:
+```bash
+docker compose logs -f standard-api
+```
+
+### 3. Parar os containers:
+```bash
+docker compose down
+```
+
+---
+
 ## Recursos Implementados
 
+- **Docker & Docker Compose**: Multi-stage Dockerfile enxuto com PostgreSQL 16 e Redis 7.
+- **Banco de Dados SQL (PostgreSQL)**: Persistência de instâncias, webhooks e histórico de mensagens com migrações automáticas de schema.
+- **Cache & Redis**: Conector de cache distribuído e suporte a filas assíncronas.
 - **Arquitetura Multi-Instâncias (Multi-Tenant)**: Dezenas de números conectados simultaneamente em pastas isoladas (`./sessions/<instanceName>`).
 - **Envio e Cifragem de Mídias para CDN**: Cifragem AES-256-CBC + HKDF + HMAC com upload seguro para `mms.whatsapp.net`.
 - **Criptografia Noise XX**: Handshake direto com os servidores do WhatsApp via WebSocket.
