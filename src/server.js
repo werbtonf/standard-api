@@ -965,11 +965,7 @@ fastify.post('/contact/check-number/:instanceName', {
     throw new Error('Forneça "number" (string) ou "numbers" (array de strings).');
   }
 
-  const results = [];
-  for (const num of targets) {
-    const res = await instance.checkNumber(num);
-    results.push(res);
-  }
+  const results = await instance.checkNumbers(targets);
 
   return {
     status: 'SUCCESS',
@@ -1000,10 +996,7 @@ fastify.post('/contact/check-number', {
   if (targets.length === 0) {
     throw new Error('Forneça "number" (string) ou "numbers" (array de strings).');
   }
-  const results = [];
-  for (const num of targets) {
-    results.push(await instance.checkNumber(num));
-  }
+  const results = await instance.checkNumbers(targets);
   return { status: 'SUCCESS', instanceName: 'default', results };
 });
 

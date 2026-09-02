@@ -345,6 +345,22 @@ export class WhatsAppInstance {
     return result;
   }
 
+  async checkNumbers(numbers) {
+    if (this.status !== 'open' || !this.client) {
+      throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);
+    }
+    const results = await this.client.checkNumbers(numbers);
+    for (const res of results) {
+      if (res.exists && res.jid) {
+        upsertContactInDb(this.name, {
+          jid: res.jid,
+          statusText: res.status
+        });
+      }
+    }
+    return results;
+  }
+
   async getProfilePicture(number, type = 'image') {
     if (this.status !== 'open' || !this.client) {
       throw new Error(`Instância "${this.name}" não está conectada ao WhatsApp.`);

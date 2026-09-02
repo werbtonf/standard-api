@@ -387,87 +387,139 @@ export async function fetchPreKeys(query, devicesList, repository) {
 }
 
 /**
- * Verifica se um número de telefone está cadastrado no WhatsApp e retorna seu JID canônico.
+ * Verifica se múltiplos números de telefone estão cadastrados no WhatsApp em uma única consulta USync em lote.
  */
-export async function checkWhatsAppNumber(query, number) {
-  const formattedPhone = formatPhoneNumber(number);
-  
-  // Gera lista de formatos a tentar (para números brasileiros com/sem o 9º dígito)
-  const phonesToTry = [formattedPhone];
-  if (formattedPhone.startsWith('55')) {
-    if (formattedPhone.length === 13 && formattedPhone[4] === '9') {
-      // 55 + DDD + 9 + 8 dígitos -> adiciona versão de 12 dígitos sem o 9
-      phonesToTry.push(`55${formattedPhone.slice(2, 4)}${formattedPhone.slice(5)}`);
-    } else if (formattedPhone.length === 12) {
-      // 55 + DDD + 8 dígitos -> adiciona versão de 13 dígitos com o 9
-      phonesToTry.push(`55${formattedPhone.slice(2, 4)}9${formattedPhone.slice(4)}`);
-    }
-  }
+export async function checkWhatsAppNumbers(query, rawNumbers) {
+  const list = Array.isArray(rawNumbers) ? rawNumbers : [rawNumbers];
+  const queryItems = [];
 
-  for (const phone of phonesToTry) {
-    const phoneWithPlus = '+' + phone;
-    try {
-      const res = await query({
-        tag: 'iq',
-        attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
-        content: [
-          {
-            tag: 'usync',
-            attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
-            content: [
-              {
-                tag: 'query',
-                attrs: {},
-                content: [
-                  { tag: 'contact', attrs: {} },
-                  { tag: 'status', attrs: {} },
-                  { tag: 'devices', attrs: { version: '2' } }
-                ]
-              },
-              {
-                tag: 'list',
-                attrs: {},
-                content: [
-                  { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: phoneWithPlus }] }
-                ]
-              }
-            ]
-          }
-        ]
-      }, 8000);
+  for (const raw of list) {
+    const formatted = formatPhoneNumber(raw);
+    if (!formatted) continue;
 
-      const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
-      const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
-      const userNode = listNode ? (listNode.content || []).find(c => c && c.tag === 'user') : null;
-
-      if (userNode) {
-        const contactNode = (userNode.content || []).find(c => c && c.tag === 'contact');
-        const isRegistered = contactNode ? contactNode.attrs?.type !== 'out' : Boolean(userNode.attrs?.jid);
-        
-        if (isRegistered && userNode.attrs?.jid) {
-          const jid = userNode.attrs.jid;
-          const statusNode = (userNode.content || []).find(c => c && c.tag === 'status');
-          const statusText = statusNode?.content ? (Buffer.isBuffer(statusNode.content) ? statusNode.content.toString('utf-8') : String(statusNode.content)) : null;
-
-          return {
-            exists: true,
-            jid,
-            number: phone,
-            status: statusText
-          };
-        }
+    const phones = [formatted];
+    if (formatted.startsWith('55')) {
+      if (formatted.length === 13 && formatted[4] === '9') {
+        phones.push(`55${formatted.slice(2, 4)}${formatted.slice(5)}`);
+      } else if (formatted.length === 12) {
+        phones.push(`55${formatted.slice(2, 4)}9${formatted.slice(4)}`);
       }
-    } catch (err) {
-      logger.debug('contact', `Erro ao verificar numero ${phone}: ${err.message}`);
+    }
+
+    queryItems.push({
+      original: String(raw).trim(),
+      primary: formatted,
+      variants: phones
+    });
+  }
+
+  if (queryItems.length === 0) return [];
+
+  // Monta lista única de telefones com "+" para enviar em 1 único USync IQ
+  const allPhonesSet = new Set();
+  for (const item of queryItems) {
+    for (const p of item.variants) {
+      allPhonesSet.add(p);
     }
   }
 
-  return {
-    exists: false,
-    jid: null,
-    number: formattedPhone,
-    status: null
-  };
+  const allPhones = Array.from(allPhonesSet);
+  const phoneResults = new Map(); // phone -> { exists, jid }
+
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
+      content: [
+        {
+          tag: 'usync',
+          attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
+          content: [
+            {
+              tag: 'query',
+              attrs: {},
+              content: [
+                { tag: 'contact', attrs: {} },
+                { tag: 'devices', attrs: { version: '2' } }
+              ]
+            },
+            {
+              tag: 'list',
+              attrs: {},
+              content: allPhones.map(p => ({
+                tag: 'user',
+                attrs: {},
+                content: [{ tag: 'contact', attrs: {}, content: '+' + p }]
+              }))
+            }
+          ]
+        }
+      ]
+    }, 6000);
+
+    const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
+    const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
+    const userNodes = listNode ? (listNode.content || []).filter(c => c && c.tag === 'user') : [];
+
+    for (const userNode of userNodes) {
+      const contactNode = (userNode.content || []).find(c => c && c.tag === 'contact');
+      const jid = userNode.attrs?.jid;
+      const isRegistered = contactNode ? contactNode.attrs?.type !== 'out' : Boolean(jid);
+
+      // Telefone retornado pelo nó de contato ou JID
+      const contactPhone = contactNode?.content ? String(contactNode.content).replace(/[^0-9]/g, '') : null;
+      const jidUser = jid ? jid.split('@')[0].split(':')[0] : null;
+
+      const matchedPhone = contactPhone || jidUser;
+      if (matchedPhone) {
+        phoneResults.set(matchedPhone, {
+          exists: isRegistered && Boolean(jid),
+          jid: isRegistered ? jid : null
+        });
+      }
+      if (jidUser && jidUser !== matchedPhone) {
+        phoneResults.set(jidUser, {
+          exists: isRegistered && Boolean(jid),
+          jid: isRegistered ? jid : null
+        });
+      }
+    }
+  } catch (err) {
+    logger.debug('contact', `Erro ao verificar lote de numeros USync: ${err.message}`);
+  }
+
+  // Mapeia de volta para cada entrada original
+  const results = [];
+  for (const item of queryItems) {
+    let matched = null;
+    for (const p of item.variants) {
+      if (phoneResults.has(p) && phoneResults.get(p).exists) {
+        matched = {
+          exists: true,
+          jid: phoneResults.get(p).jid,
+          number: item.original
+        };
+        break;
+      }
+    }
+
+    if (!matched) {
+      results.push({
+        exists: false,
+        jid: null,
+        number: item.original
+      });
+    } else {
+      results.push(matched);
+    }
+  }
+
+  return results;
+}
+
+export async function checkWhatsAppNumber(query, number) {
+  const results = await checkWhatsAppNumbers(query, [number]);
+  return results[0] || { exists: false, jid: null, number: String(number) };
 }
 
 /**
