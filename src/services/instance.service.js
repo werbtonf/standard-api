@@ -247,16 +247,23 @@ export class WhatsAppInstance {
 
       // Webhook para novas mensagens recebidas
       this.client.ev.on('messages.upsert', (data) => {
-        this.dispatchWebhook('messages.upsert', data);
-        if (data?.messages) {
-          for (const msg of data.messages) {
-            const from = msg.key?.remoteJid || 'desconhecido';
-            const textPreview = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
-            const mediaType = Object.keys(msg.message || {})[0];
-            const display = textPreview ? `"${textPreview}"` : `[${mediaType || 'mensagem'}]`;
-            logger.incoming(this.name, `De ${from}: ${display}`);
-            saveMessageToDb(this.name, msg);
-          }
+        const messages = Array.isArray(data?.messages) ? data.messages : (Array.isArray(data) ? data : [data]);
+        for (const msg of messages) {
+          this.dispatchWebhook('messages.upsert', msg);
+          const from = msg.key?.remoteJid || 'desconhecido';
+          const textPreview = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+          const mediaType = Object.keys(msg.message || {})[0];
+          const display = textPreview ? `"${textPreview}"` : `[${mediaType || 'mensagem'}]`;
+          logger.incoming(this.name, `De ${from}: ${display}`);
+          saveMessageToDb(this.name, msg);
+        }
+      });
+
+      // Webhook para atualizações de status de mensagem (enviada, entregue, lida)
+      this.client.ev.on('messages.update', (data) => {
+        const updates = Array.isArray(data) ? data : [data];
+        for (const upd of updates) {
+          this.dispatchWebhook('messages.update', upd);
         }
       });
 

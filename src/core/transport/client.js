@@ -298,7 +298,48 @@ export async function connectWA(options = {}) {
           }
           break;
         case 'receipt':
-          ev.emit('receipts.update', [node]);
+          (async () => {
+            const receiptId = node.attrs.id;
+            const receiptFrom = node.attrs.from;
+            const receiptType = node.attrs.type;
+            let status = 'DELIVERY_ACK';
+            if (receiptType === 'read' || receiptType === 'read-self') {
+              status = 'READ';
+            } else if (receiptType === 'server-error' || receiptType === 'error') {
+              status = 'ERROR';
+            }
+            const updatePayload = {
+              key: {
+                id: receiptId,
+                remoteJid: receiptFrom,
+                fromMe: true
+              },
+              update: {
+                status
+              }
+            };
+            ev.emit('messages.update', [updatePayload]);
+            ev.emit('receipts.update', [node]);
+          })();
+          break;
+        case 'ack':
+          (async () => {
+            if (node.attrs.class === 'message') {
+              const msgId = node.attrs.id;
+              const to = node.attrs.to;
+              const updatePayload = {
+                key: {
+                  id: msgId,
+                  remoteJid: to,
+                  fromMe: true
+                },
+                update: {
+                  status: 'SERVER_ACK'
+                }
+              };
+              ev.emit('messages.update', [updatePayload]);
+            }
+          })();
           break;
         case 'message':
           (async () => {
@@ -306,6 +347,7 @@ export async function connectWA(options = {}) {
               const from = node.attrs.from;
               const participant = node.attrs.participant;
               const senderJid = participant || from;
+              const senderPn = node.attrs.sender_pn || node.attrs.recipient_pn || node.attrs.participant_pn;
               const encNode = getBinaryNodeChild(node, 'enc');
               let decodedMsg = null;
 
@@ -336,13 +378,20 @@ export async function connectWA(options = {}) {
                 sock.sendNode(receiptNode).catch(() => {});
               }
 
+              let remoteJidAlt = null;
+              if (senderPn) {
+                remoteJidAlt = senderPn.includes('@') ? senderPn : `${senderPn.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+              }
+
               const msgInfo = {
                 key: {
                   remoteJid: from,
+                  remoteJidAlt: remoteJidAlt || (from.includes('@lid') ? from : undefined),
                   fromMe: false,
                   id: node.attrs.id,
                   participant
                 },
+                pushName: node.attrs.notify || '',
                 message: decodedMsg,
                 messageTimestamp: +node.attrs.t || Math.floor(Date.now() / 1000)
               };
