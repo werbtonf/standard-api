@@ -118,7 +118,7 @@ export class WhatsAppInstance {
     const startTime = Date.now();
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
       const res = await fetch(this.webhook.url, {
         method: 'POST',
