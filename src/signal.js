@@ -479,15 +479,16 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
       const userNodes = listNode ? (listNode.content || []).filter(c => c && c.tag === 'user') : [];
 
       for (const userNode of userNodes) {
-        const jid = userNode.attrs?.jid;
-        if (!jid) continue;
-        const jidUser = jid.split('@')[0].split(':')[0];
+        console.log('[USync userNode]', JSON.stringify(userNode));
+        const jid = userNode.attrs?.jid || null;
+        const jidUser = jid ? jid.split('@')[0].split(':')[0] : null;
 
-        // Processa todos os nós de contato retornados
         const contactNodes = (userNode.content || []).filter(c => c && c.tag === 'contact');
+        let contactExists = false;
+        let matchedPhone = null;
 
         for (const contactNode of contactNodes) {
-          const isContactIn = contactNode.attrs?.type !== 'out';
+          const contactExists = contactNode.attrs?.type === 'in';
           const rawContent = contactNode.content;
           let phoneText = null;
           if (rawContent) {
@@ -504,19 +505,20 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
 
           const phoneClean = phoneText ? phoneText.replace(/[^0-9]/g, '') : null;
           if (phoneClean) {
+            matchedPhone = phoneClean;
             const entry = {
-              exists: isContactIn,
-              jid: isContactIn ? jid : null
+              exists: contactExists,
+              jid: contactExists ? (jid || `${phoneClean}@s.whatsapp.net`) : null
             };
             phoneResults.set(phoneClean, entry);
             usyncContactCache.set(phoneClean, { ...entry, expiresAt: now + (60 * 60 * 1000) });
           }
         }
 
-        if (jidUser) {
+        if (jidUser && !matchedPhone) {
           const entry = {
-            exists: true,
-            jid
+            exists: contactExists,
+            jid: contactExists ? jid : null
           };
           phoneResults.set(jidUser, entry);
           usyncContactCache.set(jidUser, { ...entry, expiresAt: now + (60 * 60 * 1000) });
@@ -524,9 +526,6 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
       }
     } catch (err) {
       logger.warn('contact', `Erro ao verificar lote de números USync: ${err.message}`);
-      if (phoneResults.size === 0) {
-        throw new Error(`Falha ao verificar números no WhatsApp: ${err.message}`);
-      }
     }
   }
 
@@ -535,13 +534,14 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
   for (const item of queryItems) {
     let matched = null;
     for (const p of item.variants) {
-      if (phoneResults.has(p) && phoneResults.get(p).exists) {
+      if (phoneResults.has(p)) {
+        const res = phoneResults.get(p);
         matched = {
-          exists: true,
-          jid: phoneResults.get(p).jid,
+          exists: res.exists,
+          jid: res.jid,
           number: item.original
         };
-        break;
+        if (res.exists) break;
       }
     }
 
@@ -574,11 +574,10 @@ export async function fetchProfilePictureUrl(query, jidOrNumber, type = 'image')
   if (!targetJid.includes('@g.us')) {
     if (!targetJid.includes('@')) {
       const check = await checkWhatsAppNumber(query, targetJid);
-      if (check.exists && check.jid) {
-        targetJid = check.jid;
-      } else {
-        targetJid = `${formatPhoneNumber(targetJid)}@s.whatsapp.net`;
+      if (!check.exists) {
+        return null;
       }
+      targetJid = check.jid || `${formatPhoneNumber(targetJid)}@s.whatsapp.net`;
     }
   }
 
@@ -615,11 +614,10 @@ export async function fetchContactStatus(query, jidOrNumber) {
 
   if (!targetJid.includes('@')) {
     const check = await checkWhatsAppNumber(query, targetJid);
-    if (check.exists && check.jid) {
-      targetJid = check.jid;
-    } else {
-      targetJid = `${formatPhoneNumber(targetJid)}@s.whatsapp.net`;
+    if (!check.exists) {
+      return { jid: null, status: '', setAt: null };
     }
+    targetJid = check.jid || `${formatPhoneNumber(targetJid)}@s.whatsapp.net`;
   }
 
   try {

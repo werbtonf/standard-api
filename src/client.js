@@ -28,7 +28,7 @@ import {
   KEEP_ALIVE_INTERVAL_MS
 } from './constants.js';
 
-const S_WHATSAPP_NET = 's.whatsapp.net';
+const S_WHATSAPP_NET = '@s.whatsapp.net';
 const COMPANION_REG_REFRESH_CHILDREN = ['companion_reg_refresh', 'pair-device-rotate-qr'];
 
 let messageIdCounter = 0;
@@ -122,9 +122,11 @@ export async function connectWA(options = {}) {
       if (!node.attrs.id) node.attrs.id = generateMessageTag();
       const msgId = node.attrs.id;
       const buff = encodeBinaryNode(node);
+      console.log(`[QUERY SEND ${msgId}] tag=${node.tag} xmlns=${node.attrs.xmlns} to=${node.attrs.to}`);
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           queries.delete(msgId);
+          console.log(`[QUERY TIMEOUT ${msgId}] after ${timeoutMs}ms`);
           reject(new Error('timed out waiting for ' + msgId));
         }, timeoutMs);
         queries.set(msgId, { resolve, reject, timeout });
@@ -208,7 +210,8 @@ export async function connectWA(options = {}) {
     };
 
     const emitNode = (node) => {
-      if (node.attrs.id && queries.has(node.attrs.id)) {
+      if (node.attrs?.id && queries.has(node.attrs.id)) {
+        console.log(`[QUERY MATCHED ${node.attrs.id}] tag=${node.tag} type=${node.attrs.type}`);
         const { resolve, reject, timeout } = queries.get(node.attrs.id);
         clearTimeout(timeout);
         queries.delete(node.attrs.id);
@@ -218,6 +221,9 @@ export async function connectWA(options = {}) {
           resolve(node);
         }
         return;
+      }
+      if (node.tag === 'iq') {
+        console.log(`[UNMATCHED IQ] id=${node.attrs?.id} type=${node.attrs?.type} from=${node.attrs?.from}`);
       }
 
       switch (node.tag) {
