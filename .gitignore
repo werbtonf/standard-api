@@ -1,8 +1,89 @@
+# ==============================================================================
+# STANDARD API - .gitignore
+# ==============================================================================
+
+# 1. Environment & Secrets
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.env.*.local
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+
+# 2. Dependencies
 node_modules/
-/tmp/
-*.log
-.DS_Store
-*.session.json
+.pnp
+.pnp.js
+.npm/
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# 3. WhatsApp Auth & Session Data
 sessions/
+!sessions/.gitkeep
+*.session.json
+auth_info/
+auth_info_baileys/
+auth_info_multi/
+*.creds.json
+
+# 4. Databases & Persistent Volumes (Local Docker / Dev)
+data/
+db/
+storage/
+postgres_data/
+redis_data/
+*.sqlite
+*.sqlite3
+*.db
+
+# 5. Logs & Diagnostics
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# 6. Temporary & Cache Directories
+tmp/
+/tmp/
+temp/
+.temp/
+.cache/
+dist/
+build/
+coverage/
+.nyc_output/
+scratch/
+
+# 7. OS & IDE Configuration
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# 8. Project Notes & Development Files
 HANDOVER.md
 TODO.md
+notes/
