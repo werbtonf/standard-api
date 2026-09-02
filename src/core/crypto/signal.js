@@ -370,6 +370,15 @@ export async function resolveLidToPn(query, lidJid) {
   return map[lidJid] || null;
 }
 
+export function cachedLidForPn(pnJid) {
+  if (!pnJid) return null;
+  const pnUser = String(pnJid).split('@')[0].split(':')[0];
+  for (const [lid, pn] of Object.entries(lidMapCache)) {
+    if (pn && String(pn).split('@')[0].split(':')[0] === pnUser) return lid;
+  }
+  return null;
+}
+
 /**
  * Busca pré-chaves públicas dos destinatários no servidor do WhatsApp em um único IQ em lote.
  */
