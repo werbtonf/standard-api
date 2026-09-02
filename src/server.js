@@ -29,14 +29,27 @@ await fastify.register(cors, {
   origin: '*'
 });
 
-// Configuração do Swagger OpenAPI
+// Configuração do Swagger OpenAPI com suporte a API Key
 await fastify.register(swagger, {
   openapi: {
     info: {
       title: 'standard-api - WhatsApp Multi-Instance REST API',
-      description: 'API REST Multi-Instâncias de alta performance para WhatsApp Web (estilo Evolution / Z-API), implementada em Node.js com criptografia Noise XX, Signal Protocol E2EE e Envio de Mídias para CDN.',
+      description: 'API REST Multi-Instâncias de alta performance para WhatsApp Web (estilo Evolution / Z-API), implementada em Node.js com criptografia Noise XX, Signal Protocol E2EE, Envio de Mídias para CDN e Segurança por API Key.',
       version: '1.0.0'
     },
+    components: {
+      securitySchemes: {
+        apiKeyHeader: {
+          type: 'apiKey',
+          name: 'apikey',
+          in: 'header',
+          description: 'Chave de autenticação (GLOBAL_API_KEY ou API Key da Instância)'
+        }
+      }
+    },
+    security: [
+      { apiKeyHeader: [] }
+    ],
     tags: [
       { name: 'Instance', description: 'Gerenciamento de Múltiplas Instâncias (Criar, Listar, Conectar, QR Code, Deletar)' },
       { name: 'Messages', description: 'Envio de Mensagens de Texto e Mídias (Imagens, Áudios/PTT, Documentos, Vídeos, Stickers)' },
@@ -58,6 +71,48 @@ await fastify.register(swaggerUi, {
 // Gerenciador de Instâncias
 const manager = new InstanceManager({
   baseDir: process.env.SESSION_DIR || './sessions'
+});
+
+const GLOBAL_API_KEY = process.env.GLOBAL_API_KEY || '';
+
+// Hook de Autenticação Global / Multi-Tenant via API Key
+fastify.addHook('preHandler', async (request, reply) => {
+  const url = request.raw.url || '';
+  // Rotas públicas (documentação, swagger json/static e raiz)
+  if (
+    url === '/' ||
+    url.startsWith('/docs') ||
+    url.startsWith('/public') ||
+    request.method === 'OPTIONS'
+  ) {
+    return;
+  }
+
+  const providedKey = request.headers['apikey'] || request.headers['x-api-key'] || request.query?.apikey;
+
+  // 1. Valida Global API Key (Acesso irrestrito a todas as rotas)
+  if (GLOBAL_API_KEY && providedKey === GLOBAL_API_KEY) {
+    return;
+  }
+
+  // 2. Valida API Key da Instância
+  const instanceName = request.params?.instanceName || request.body?.instanceName;
+  if (instanceName && manager.hasInstance(instanceName)) {
+    try {
+      const instance = manager.getInstance(instanceName);
+      if (instance.apikey && providedKey === instance.apikey) {
+        return;
+      }
+    } catch (e) {}
+  }
+
+  // Se GLOBAL_API_KEY está configurada e a chave não foi válida, rejeita
+  if (GLOBAL_API_KEY) {
+    return reply.code(401).send({
+      status: 'UNAUTHORIZED',
+      error: 'Acesso não autorizado. Forneça uma API Key válida no header "apikey" ou "x-api-key".'
+    });
+  }
 });
 
 // Rota inicial / Info
@@ -104,6 +159,10 @@ fastify.post('/instance/create', {
           type: 'string',
           description: 'Nome único identificador da instância',
           default: 'atendimento-01'
+        },
+        apikey: {
+          type: 'string',
+          description: 'Chave de API opcional exclusiva para esta instância (Multi-Tenant)'
         }
       }
     },
@@ -117,6 +176,7 @@ fastify.post('/instance/create', {
             properties: {
               instanceName: { type: 'string' },
               status: { type: 'string' },
+              apikey: { type: 'string', nullable: true },
               connected: { type: 'boolean' }
             }
           }
@@ -125,8 +185,8 @@ fastify.post('/instance/create', {
     }
   }
 }, async (request) => {
-  const { instanceName } = request.body;
-  return await manager.createInstance(instanceName);
+  const { instanceName, apikey } = request.body;
+  return await manager.createInstance(instanceName, { apikey });
 });
 
 // Listar Todas as Instâncias

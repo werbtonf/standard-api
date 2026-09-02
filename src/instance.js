@@ -4,7 +4,7 @@ import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from '
 import { readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import QRCode from 'qrcode';
-import { saveMessageToDb } from './db.js';
+import { saveMessageToDb, upsertInstanceInDb, deleteInstanceFromDb } from './db.js';
 
 export class WhatsAppInstance {
   constructor(name, options = {}) {
@@ -13,6 +13,8 @@ export class WhatsAppInstance {
     this.sessionDir = join(this.baseDir, this.name);
     this.sessionFile = join(this.sessionDir, 'session.json');
     this.webhookFile = join(this.sessionDir, 'webhook.json');
+    this.configFile = join(this.sessionDir, 'config.json');
+    this.apikey = options.apikey || null;
     this.client = null;
     this.creds = null;
     this.status = 'disconnected'; // 'disconnected' | 'connecting' | 'qrcode' | 'open' | 'close'
@@ -34,7 +36,33 @@ export class WhatsAppInstance {
       mkdirSync(this.sessionDir, { recursive: true });
     }
 
+    this.loadConfigSync();
     this.loadWebhookSync();
+  }
+
+  loadConfigSync() {
+    if (existsSync(this.configFile)) {
+      try {
+        const raw = JSON.parse(readFileSync(this.configFile, 'utf8'));
+        if (raw.apikey && !this.apikey) {
+          this.apikey = raw.apikey;
+        }
+      } catch (e) {}
+    }
+  }
+
+  async saveConfig() {
+    try {
+      await writeFile(this.configFile, JSON.stringify({ apikey: this.apikey }, null, 2));
+    } catch (e) {
+      console.error(`[${this.name}] Erro ao salvar config:`, e.message);
+    }
+    upsertInstanceInDb(this.name, {
+      status: this.status,
+      apikey: this.apikey,
+      ownerJid: this.creds?.me?.id,
+      webhookUrl: this.webhook.url
+    });
   }
 
   loadWebhookSync() {
@@ -289,6 +317,7 @@ export class WhatsAppInstance {
     return {
       instanceName: this.name,
       status: this.status,
+      apikey: this.apikey || null,
       connected: this.status === 'open',
       me: this.creds?.me || null,
       uptime: this.startedAt ? Math.floor((Date.now() - this.startedAt.getTime()) / 1000) : 0,
@@ -381,7 +410,7 @@ export class InstanceManager {
     }
   }
 
-  async createInstance(name = 'default') {
+  async createInstance(name = 'default', options = {}) {
     const cleanName = String(name).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     if (!cleanName) {
       throw new Error('Nome de instância inválido. Use apenas letras, números, hífens e underscores.');
@@ -389,6 +418,10 @@ export class InstanceManager {
 
     if (this.instances.has(cleanName)) {
       const existing = this.instances.get(cleanName);
+      if (options.apikey) {
+        existing.apikey = options.apikey;
+        await existing.saveConfig();
+      }
       if (existing.status === 'open') {
         return { status: 'ALREADY_CONNECTED', instance: existing.getStatus() };
       }
@@ -396,10 +429,18 @@ export class InstanceManager {
       return { status: 'CONNECTING', instance: existing.getStatus() };
     }
 
-    const instance = new WhatsAppInstance(cleanName, { baseDir: this.baseDir });
+    const instance = new WhatsAppInstance(cleanName, { baseDir: this.baseDir, apikey: options.apikey });
     this.instances.set(cleanName, instance);
+    if (options.apikey) {
+      await instance.saveConfig();
+    }
     await instance.init();
     return { status: 'CREATED', instance: instance.getStatus() };
+  }
+
+  hasInstance(name) {
+    const cleanName = String(name || '').trim().toLowerCase();
+    return this.instances.has(cleanName) || existsSync(join(this.baseDir, cleanName));
   }
 
   getInstance(name = 'default') {
@@ -429,6 +470,7 @@ export class InstanceManager {
     }
     await inst.delete();
     this.instances.delete(cleanName);
+    deleteInstanceFromDb(cleanName);
     return { status: 'DELETED', instanceName: cleanName };
   }
 }

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   standard-api:
     build:
@@ -21,6 +19,7 @@ services:
       - SESSIONS_DIR=/app/sessions
     volumes:
       - ./sessions:/app/sessions
+      - ./src:/app/src
     depends_on:
       postgres:
         condition: service_healthy

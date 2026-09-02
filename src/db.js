@@ -102,9 +102,32 @@ export async function saveMessageToDb(instanceName, msgInfo) {
   }
 }
 
-export async function updateMessageStatusInDb(id, status) {
+export async function upsertInstanceInDb(instanceName, data = {}) {
   if (!isConnected || !pool) return;
   try {
-    await pool.query('UPDATE messages SET status = $1 WHERE id = $2', [status, id]);
-  } catch (e) {}
+    const { status, apikey, ownerJid, webhookUrl } = data;
+    await pool.query(
+      `INSERT INTO instances (name, status, apikey, owner_jid, webhook_url, updated_at)
+       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+       ON CONFLICT (name) DO UPDATE SET
+         status = COALESCE($2, instances.status),
+         apikey = COALESCE($3, instances.apikey),
+         owner_jid = COALESCE($4, instances.owner_jid),
+         webhook_url = COALESCE($5, instances.webhook_url),
+         updated_at = CURRENT_TIMESTAMP`,
+      [instanceName, status || 'disconnected', apikey || null, ownerJid || null, webhookUrl || null]
+    );
+  } catch (e) {
+    console.warn('[db upsertInstance error]', e.message);
+  }
 }
+
+export async function deleteInstanceFromDb(instanceName) {
+  if (!isConnected || !pool) return;
+  try {
+    await pool.query('DELETE FROM instances WHERE name = $1', [instanceName]);
+  } catch (e) {
+    console.warn('[db deleteInstance error]', e.message);
+  }
+}
+
