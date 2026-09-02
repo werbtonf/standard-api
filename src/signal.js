@@ -386,12 +386,15 @@ export async function fetchPreKeys(query, devicesList, repository) {
   }
 }
 
+const usyncContactCache = new Map(); // phone -> { exists, jid, expiresAt }
+
 /**
  * Verifica se múltiplos números de telefone estão cadastrados no WhatsApp em uma única consulta USync em lote.
  */
 export async function checkWhatsAppNumbers(query, rawNumbers) {
   const list = Array.isArray(rawNumbers) ? rawNumbers : [rawNumbers];
   const queryItems = [];
+  const now = Date.now();
 
   for (const raw of list) {
     const formatted = formatPhoneNumber(raw);
@@ -415,95 +418,115 @@ export async function checkWhatsAppNumbers(query, rawNumbers) {
 
   if (queryItems.length === 0) return [];
 
-  // Monta lista única de telefones com "+" para enviar em 1 único USync IQ
-  const allPhonesSet = new Set();
+  // Checa cache em memória primeiro
+  const phoneResults = new Map(); // phone -> { exists, jid }
+  const phonesToFetch = [];
+
   for (const item of queryItems) {
+    let foundInCache = false;
     for (const p of item.variants) {
-      allPhonesSet.add(p);
+      const cached = usyncContactCache.get(p);
+      if (cached && cached.expiresAt > now) {
+        phoneResults.set(p, { exists: cached.exists, jid: cached.jid });
+        foundInCache = true;
+      }
+    }
+    if (!foundInCache) {
+      for (const p of item.variants) {
+        if (!phonesToFetch.includes(p)) {
+          phonesToFetch.push(p);
+        }
+      }
     }
   }
 
-  const allPhones = Array.from(allPhonesSet);
-  const phoneResults = new Map(); // phone -> { exists, jid }
-
-  try {
-    const res = await query({
-      tag: 'iq',
-      attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
-      content: [
-        {
-          tag: 'usync',
-          attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
-          content: [
-            {
-              tag: 'query',
-              attrs: {},
-              content: [
-                { tag: 'contact', attrs: {} },
-                { tag: 'devices', attrs: { version: '2' } }
-              ]
-            },
-            {
-              tag: 'list',
-              attrs: {},
-              content: allPhones.map(p => ({
-                tag: 'user',
+  // Se há números a buscar na rede do WhatsApp
+  if (phonesToFetch.length > 0) {
+    try {
+      const res = await query({
+        tag: 'iq',
+        attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
+        content: [
+          {
+            tag: 'usync',
+            attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'interactive' },
+            content: [
+              {
+                tag: 'query',
                 attrs: {},
-                content: [{ tag: 'contact', attrs: {}, content: '+' + p }]
-              }))
+                content: [
+                  { tag: 'contact', attrs: {} }
+                ]
+              },
+              {
+                tag: 'list',
+                attrs: {},
+                content: phonesToFetch.map(p => ({
+                  tag: 'user',
+                  attrs: {},
+                  content: [{ tag: 'contact', attrs: {}, content: '+' + p }]
+                }))
+              }
+            ]
+          }
+        ]
+      }, 10000);
+
+      const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
+      const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
+      const userNodes = listNode ? (listNode.content || []).filter(c => c && c.tag === 'user') : [];
+
+      for (const userNode of userNodes) {
+        const jid = userNode.attrs?.jid;
+        if (!jid) continue;
+        const jidUser = jid.split('@')[0].split(':')[0];
+
+        // Processa todos os nós de contato retornados
+        const contactNodes = (userNode.content || []).filter(c => c && c.tag === 'contact');
+
+        for (const contactNode of contactNodes) {
+          const isContactIn = contactNode.attrs?.type !== 'out';
+          const rawContent = contactNode.content;
+          let phoneText = null;
+          if (rawContent) {
+            if (Buffer.isBuffer(rawContent)) {
+              phoneText = rawContent.toString('utf-8');
+            } else if (rawContent instanceof Uint8Array) {
+              phoneText = Buffer.from(rawContent).toString('utf-8');
+            } else if (typeof rawContent === 'object' && Array.isArray(rawContent.data)) {
+              phoneText = Buffer.from(rawContent.data).toString('utf-8');
+            } else {
+              phoneText = String(rawContent);
             }
-          ]
-        }
-      ]
-    }, 10000);
+          }
 
-    const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
-    const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
-    const userNodes = listNode ? (listNode.content || []).filter(c => c && c.tag === 'user') : [];
-
-    for (const userNode of userNodes) {
-      const jid = userNode.attrs?.jid;
-      if (!jid) continue;
-      const jidUser = jid.split('@')[0].split(':')[0];
-
-      // Processa todos os nós de contato retornados
-      const contactNodes = (userNode.content || []).filter(c => c && c.tag === 'contact');
-
-      for (const contactNode of contactNodes) {
-        const isContactIn = contactNode.attrs?.type !== 'out';
-        const rawContent = contactNode.content;
-        let phoneText = null;
-        if (rawContent) {
-          if (Buffer.isBuffer(rawContent)) {
-            phoneText = rawContent.toString('utf-8');
-          } else if (rawContent instanceof Uint8Array) {
-            phoneText = Buffer.from(rawContent).toString('utf-8');
-          } else if (typeof rawContent === 'object' && Array.isArray(rawContent.data)) {
-            phoneText = Buffer.from(rawContent.data).toString('utf-8');
-          } else {
-            phoneText = String(rawContent);
+          const phoneClean = phoneText ? phoneText.replace(/[^0-9]/g, '') : null;
+          if (phoneClean) {
+            const entry = {
+              exists: isContactIn,
+              jid: isContactIn ? jid : null
+            };
+            phoneResults.set(phoneClean, entry);
+            usyncContactCache.set(phoneClean, { ...entry, expiresAt: now + (30 * 60 * 1000) });
           }
         }
 
-        const phoneClean = phoneText ? phoneText.replace(/[^0-9]/g, '') : null;
-        if (phoneClean) {
-          phoneResults.set(phoneClean, {
-            exists: isContactIn,
-            jid: isContactIn ? jid : null
-          });
+        if (jidUser) {
+          const entry = {
+            exists: true,
+            jid
+          };
+          phoneResults.set(jidUser, entry);
+          usyncContactCache.set(jidUser, { ...entry, expiresAt: now + (30 * 60 * 1000) });
         }
       }
-
-      if (jidUser) {
-        phoneResults.set(jidUser, {
-          exists: true,
-          jid
-        });
+    } catch (err) {
+      logger.warn('contact', `Erro ao verificar lote de números USync: ${err.message}`);
+      // Se deu timeout mas não tínhamos cache, re-lança o erro informativo
+      if (phoneResults.size === 0) {
+        throw new Error(`Falha ao verificar números no WhatsApp: ${err.message}`);
       }
     }
-  } catch (err) {
-    logger.warn('contact', `Erro ao verificar lote de números USync: ${err.message}`);
-    throw new Error(`Falha ao verificar números no WhatsApp: ${err.message}`);
   }
 
   // Mapeia de volta para cada entrada original
