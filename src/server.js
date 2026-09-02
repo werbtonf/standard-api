@@ -126,10 +126,20 @@ fastify.get('/', {
       listInstances: 'GET /instance/list',
       status: 'GET /instance/status/:instanceName',
       qr: 'GET /instance/qr/:instanceName',
+      connect: 'POST /instance/connect/:instanceName',
+      logout: 'POST /instance/logout/:instanceName',
+      delete: 'DELETE /instance/delete/:instanceName',
       sendText: 'POST /message/send-text/:instanceName',
       sendMedia: 'POST /message/send-media/:instanceName',
       setWebhook: 'POST /webhook/set/:instanceName',
-      findWebhook: 'GET /webhook/find/:instanceName'
+      findWebhook: 'GET /webhook/find/:instanceName',
+      checkNumber: 'POST /contact/check-number/:instanceName',
+      profilePicture: 'POST /contact/profile-picture/:instanceName',
+      contactStatus: 'POST /contact/status/:instanceName',
+      blockContact: 'POST /contact/block/:instanceName',
+      blocklist: 'GET /contact/blocklist/:instanceName',
+      updateProfileStatus: 'POST /contact/update-profile-status/:instanceName',
+      listContacts: 'GET /contact/list/:instanceName'
     }
   };
 });
@@ -254,17 +264,6 @@ fastify.get('/instance/status/:instanceName', {
   return instance.getStatus();
 });
 
-fastify.get('/instance/status', {
-  schema: {
-    tags: ['Instance'],
-    summary: 'Status da Instância Padrão',
-    description: 'Retorna o status da instância padrão ("default").'
-  }
-}, async () => {
-  const instance = manager.getInstance('default');
-  return instance.getStatus();
-});
-
 // Obter QR Code de uma Instância
 fastify.get('/instance/qr/:instanceName', {
   schema: {
@@ -294,17 +293,6 @@ fastify.get('/instance/qr/:instanceName', {
   return instance.getQR();
 });
 
-fastify.get('/instance/qr', {
-  schema: {
-    tags: ['Instance'],
-    summary: 'Obter QR Code da Instância Padrão',
-    description: 'Retorna o QR Code da instância padrão ("default").'
-  }
-}, async () => {
-  const instance = manager.getInstance('default');
-  return instance.getQR();
-});
-
 // Conectar / Reconectar Instância
 fastify.post('/instance/connect/:instanceName', {
   schema: {
@@ -327,20 +315,6 @@ fastify.post('/instance/connect/:instanceName', {
   return { status: 'CONNECTING', message: `Conexão iniciada para a instância "${instance.name}".` };
 });
 
-fastify.post('/instance/connect', {
-  schema: {
-    tags: ['Instance'],
-    summary: 'Conectar Instância Padrão'
-  }
-}, async () => {
-  const instance = manager.getInstance('default');
-  if (instance.status === 'open') {
-    return { status: 'ALREADY_CONNECTED', message: 'Instância "default" já está conectada.' };
-  }
-  await instance.init();
-  return { status: 'CONNECTING', message: 'Conexão iniciada para a instância "default".' };
-});
-
 // Logout da Instância
 fastify.post('/instance/logout/:instanceName', {
   schema: {
@@ -358,17 +332,6 @@ fastify.post('/instance/logout/:instanceName', {
   const instance = manager.getInstance(request.params.instanceName);
   await instance.logout();
   return { status: 'LOGGED_OUT', message: `Instância "${instance.name}" desconectada com sucesso.` };
-});
-
-fastify.post('/instance/logout', {
-  schema: {
-    tags: ['Instance'],
-    summary: 'Desconectar Instância Padrão'
-  }
-}, async () => {
-  const instance = manager.getInstance('default');
-  await instance.logout();
-  return { status: 'LOGGED_OUT', message: 'Instância "default" desconectada com sucesso.' };
 });
 
 // Deletar Instância
@@ -460,85 +423,6 @@ fastify.post('/message/send-text/:instanceName', {
     return {
       status: 'SUCCESS',
       instanceName,
-      messageId: result.key?.id,
-      to: result.key?.remoteJid,
-      timestamp: result.messageTimestamp
-    };
-  } catch (err) {
-    reply.status(500);
-    return {
-      status: 'ERROR',
-      error: err.message
-    };
-  }
-});
-
-// Enviar Mensagem de Texto na rota genérica
-fastify.post('/message/send-text', {
-  schema: {
-    tags: ['Messages'],
-    summary: 'Enviar Mensagem de Texto',
-    description: 'Envia uma mensagem de texto cifrada com Signal Protocol E2EE. Opcionalmente informe "instanceName" no body (padrão: "default").',
-    body: {
-      type: 'object',
-      required: ['number', 'text'],
-      properties: {
-        instanceName: {
-          type: 'string',
-          description: 'Nome da instância que enviará a mensagem (padrão: "default")',
-          default: 'default'
-        },
-        number: {
-          type: 'string',
-          description: 'Número do destinatário com DDD (ex: "99991081780" ou "559991081780")'
-        },
-        text: {
-          type: 'string',
-          description: 'Texto da mensagem a ser enviada'
-        }
-      }
-    },
-    response: {
-      200: {
-        type: 'object',
-        properties: {
-          status: { type: 'string' },
-          instanceName: { type: 'string' },
-          messageId: { type: 'string' },
-          to: { type: 'string' },
-          timestamp: { type: 'number' }
-        }
-      },
-      400: {
-        type: 'object',
-        properties: {
-          error: { type: 'string' }
-        }
-      },
-      500: {
-        type: 'object',
-        properties: {
-          status: { type: 'string' },
-          error: { type: 'string' }
-        }
-      }
-    }
-  }
-}, async (request, reply) => {
-  const { instanceName = 'default', number, text, message } = request.body;
-  const msgContent = text || message;
-
-  if (!msgContent || typeof msgContent !== 'string' || !msgContent.trim()) {
-    reply.status(400);
-    return { error: 'O campo "text" é obrigatório e não pode ser vazio.' };
-  }
-
-  try {
-    const instance = manager.getInstance(instanceName);
-    const result = await instance.sendMessage(number, msgContent);
-    return {
-      status: 'SUCCESS',
-      instanceName: instance.name,
       messageId: result.key?.id,
       to: result.key?.remoteJid,
       timestamp: result.messageTimestamp
@@ -666,118 +550,6 @@ fastify.post('/message/send-media/:instanceName', {
   }
 });
 
-// Enviar Mídia na rota genérica
-fastify.post('/message/send-media', {
-  schema: {
-    tags: ['Messages'],
-    summary: 'Enviar Mídia',
-    description: 'Envia imagem, áudio/PTT, documento, vídeo ou figurinha. Opcionalmente informe "instanceName" no body.',
-    body: {
-      type: 'object',
-      required: ['number', 'type', 'media'],
-      properties: {
-        instanceName: {
-          type: 'string',
-          description: 'Nome da instância (padrão: "default")',
-          default: 'default'
-        },
-        number: {
-          type: 'string',
-          description: 'Número do destinatário com DDD (ex: "99991081780" ou "559991081780")'
-        },
-        type: {
-          type: 'string',
-          enum: ['image', 'audio', 'document', 'video', 'sticker'],
-          description: 'Tipo de mídia a ser enviada',
-          default: 'image'
-        },
-        media: {
-          type: 'string',
-          description: 'URL pública (http/https) ou Base64 (data:mimetype;base64,...)',
-          default: 'https://images.unsplash.com/photo-1579202673506-ca3ce28943ef?w=500'
-        },
-        caption: {
-          type: 'string',
-          description: 'Legenda para imagens ou vídeos (opcional)'
-        },
-        fileName: {
-          type: 'string',
-          description: 'Nome do arquivo (ex: "relatorio.pdf") para documentos'
-        },
-        mimetype: {
-          type: 'string',
-          description: 'Mimetype explícito (ex: "image/jpeg", "application/pdf")'
-        },
-        ptt: {
-          type: 'boolean',
-          description: 'True se for áudio de gravação de voz (Push-To-Talk)',
-          default: false
-        }
-      }
-    },
-    response: {
-      200: {
-        type: 'object',
-        properties: {
-          status: { type: 'string' },
-          instanceName: { type: 'string' },
-          messageId: { type: 'string' },
-          to: { type: 'string' },
-          type: { type: 'string' },
-          timestamp: { type: 'number' }
-        }
-      },
-      400: {
-        type: 'object',
-        properties: {
-          error: { type: 'string' }
-        }
-      },
-      500: {
-        type: 'object',
-        properties: {
-          status: { type: 'string' },
-          error: { type: 'string' }
-        }
-      }
-    }
-  }
-}, async (request, reply) => {
-  const { instanceName = 'default', number, type, media, caption, fileName, mimetype, ptt, seconds } = request.body;
-
-  if (!number || !type || !media) {
-    reply.status(400);
-    return { error: 'Os campos "number", "type" e "media" são obrigatórios.' };
-  }
-
-  try {
-    const instance = manager.getInstance(instanceName);
-    const result = await instance.sendMedia(number, {
-      type,
-      media,
-      caption,
-      fileName,
-      mimetype,
-      ptt,
-      seconds
-    });
-    return {
-      status: 'SUCCESS',
-      instanceName: instance.name,
-      messageId: result.key?.id,
-      to: result.key?.remoteJid,
-      type,
-      timestamp: result.messageTimestamp
-    };
-  } catch (err) {
-    reply.status(500);
-    return {
-      status: 'ERROR',
-      error: err.message
-    };
-  }
-});
-
 // ==========================================
 // 3. ROTAS DE WEBHOOK
 // ==========================================
@@ -847,17 +619,6 @@ fastify.post('/webhook/set/:instanceName', {
   return { status: 'SUCCESS', webhook };
 });
 
-fastify.post('/webhook/set', {
-  schema: {
-    tags: ['Webhook'],
-    summary: 'Configurar Webhook da Instância Padrão'
-  }
-}, async (request) => {
-  const instance = manager.getInstance('default');
-  const webhook = await instance.setWebhook(request.body);
-  return { status: 'SUCCESS', webhook };
-});
-
 // Consultar Webhook por Instância
 fastify.get('/webhook/find/:instanceName', {
   schema: {
@@ -886,16 +647,6 @@ fastify.get('/webhook/find/:instanceName', {
 }, async (request) => {
   const instanceName = request.params.instanceName || 'default';
   const instance = manager.getInstance(instanceName);
-  return instance.getWebhook();
-});
-
-fastify.get('/webhook/find', {
-  schema: {
-    tags: ['Webhook'],
-    summary: 'Consultar Webhook da Instância Padrão'
-  }
-}, async () => {
-  const instance = manager.getInstance('default');
   return instance.getWebhook();
 });
 
