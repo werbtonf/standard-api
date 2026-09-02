@@ -18,7 +18,9 @@ import {
   fetchContactStatus,
   updateBlockStatus,
   fetchBlocklist,
-  updateProfileStatus
+  updateProfileStatus,
+  rememberLidMapping,
+  resolveLidToPn
 } from '../crypto/signal.js';
 import { encodeMessage, decodeMessage } from '../../services/message.service.js';
 import { prepareMediaMessage } from '../../services/media.service.js';
@@ -383,61 +385,63 @@ export async function connectWA(options = {}) {
               }
 
               console.log(`[INCOMING] from=${from} participant=${participant || 'none'} senderPn=${senderPn || 'none'} id=${node.attrs.id}`);
+
+              // LID: mapeia para JID de telefone quando possível (usync context=lid)
+              let effectiveJid = senderJid;
+              if ((senderJid || '').includes('@lid')) {
+                if (senderPn) {
+                  const pnJid = senderPn.includes('@') ? senderPn : `${senderPn.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+                  rememberLidMapping(senderJid, pnJid);
+                  effectiveJid = pnJid;
+                } else {
+                  const pnJid = await resolveLidToPn(conn.query, senderJid);
+                  if (pnJid) {
+                    rememberLidMapping(senderJid, pnJid);
+                    effectiveJid = pnJid;
+                  }
+                }
+              }
               const encNode = getBinaryNodeChild(node, 'enc');
               let decodedMsg = null;
 
               if (encNode && Buffer.isBuffer(encNode.content)) {
                 const encType = encNode.attrs.type;
-                console.log(`[INCOMING] enc type=${encType} length=${encNode.content.length} senderJid=${senderJid}`);
-                try {
-                  const decrypted = await signalRepo.decryptMessage({
-                    jid: senderJid,
-                    type: encType,
-                    ciphertext: encNode.content
-                  });
-                  decodedMsg = decodeMessage(decrypted);
-                  console.log(`[INCOMING] Decifrado com sucesso! keys=${Object.keys(decodedMsg || {}).join(',')}`);
-                } catch (err) {
-                  console.error('[message decrypt fail]', senderJid, err.message);
-                  const msg = String(err.message || '');
-                  if (/Key used already|never filled|Chain closed|Bad MAC|No matching sessions|Invalid PreKey ID/.test(msg)) {
-                    signalRepo.clearSessions(senderJid);
-                    const now = Date.now();
-                    if (now - lastPrekeyRotate > 60000) {
-                      lastPrekeyRotate = now;
-                      console.log('[signal] rotacionando pre-chaves para recuperar sessao...');
-                      await signPreKeys(creds, 30);
-                      ev.emit('creds.update', {});
-                      uploadPreKeys(conn.query, creds, ev).catch((e) => console.warn('[signal] uploadPreKeys apos rotacao falhou:', e.message));
-                    }
-                  }
-                  // Try decrypting with senderPn JID if different from senderJid
-                  if (senderPn) {
-                    const altJid = senderPn.includes('@') ? senderPn : `${senderPn.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
-                    if (altJid !== senderJid) {
-                      console.log(`[INCOMING] Tentando decifrar com JID alternativo: ${altJid}`);
-                      try {
-                        const decrypted = await signalRepo.decryptMessage({
-                          jid: altJid,
-                          type: encType,
-                          ciphertext: encNode.content
-                        });
-                        decodedMsg = decodeMessage(decrypted);
-                        console.log(`[INCOMING] Decifrado com JID alternativo! keys=${Object.keys(decodedMsg || {}).join(',')}`);
-                      } catch (err2) {
-                        console.error('[message decrypt fail alt]', altJid, err2.message);
-                        const msg2 = String(err2.message || '');
-                        if (/Key used already|never filled|Chain closed|Bad MAC|No matching sessions/.test(msg2)) {
-                          signalRepo.clearSessions(altJid);
-                        }
-                        decodedMsg = { rawError: err.message };
+                console.log(`[INCOMING] enc type=${encType} length=${encNode.content.length} senderJid=${senderJid} effJid=${effectiveJid}`);
+                const tryJids = [...new Set([effectiveJid, senderJid, senderPn ? (senderPn.includes('@') ? senderPn : `${senderPn.replace(/[^0-9]/g, '')}@s.whatsapp.net`) : null].filter(j => j && (j.includes('@') || /^[0-9]+$/.test(j))))];
+                const rawErrors = [];
+                for (let i = 0; i < tryJids.length; i++) {
+                  const jid = tryJids[i];
+                  try {
+                    const decrypted = await signalRepo.decryptMessage({
+                      jid,
+                      type: encType,
+                      ciphertext: encNode.content
+                    });
+                    decodedMsg = decodeMessage(decrypted);
+                    console.log(`[INCOMING] Decifrado com sucesso! (${jid}) keys=${Object.keys(decodedMsg || {}).join(',')}`);
+                    break;
+                  } catch (err) {
+                    const msg = String(err.message || '');
+                    console.error(`[message decrypt fail] ${jid} ${msg}`);
+                    if (/Key used already|never filled|Chain closed|Bad MAC|No matching sessions|Invalid PreKey ID/.test(msg)) {
+                      signalRepo.clearSessions(jid);
+                      const now = Date.now();
+                      if (now - lastPrekeyRotate > 60000) {
+                        lastPrekeyRotate = now;
+                        console.log('[signal] rotacionando pre-chaves para recuperar sessao...');
+                        await signPreKeys(creds, 30);
+                        ev.emit('creds.update', {});
+                        uploadPreKeys(conn.query, creds, ev).catch((e) => console.warn('[signal] uploadPreKeys apos rotacao falhou:', e.message));
                       }
-                    } else {
-                      decodedMsg = { rawError: err.message };
                     }
-                  } else {
-                    decodedMsg = { rawError: err.message };
+                    rawErrors.push(err.message);
+                    if (i < tryJids.length - 1) {
+                      console.log(`[INCOMING] Tentando decifrar com JID alternativo: ${tryJids[i + 1]}`);
+                    }
                   }
+                }
+                if (!decodedMsg) {
+                  decodedMsg = { rawError: (rawErrors[0] || 'decrypt failed') };
                 }
               } else {
                 console.log(`[INCOMING] Sem nó enc na mensagem de ${from}`);

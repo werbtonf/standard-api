@@ -304,6 +304,72 @@ function generateUSyncSid() {
   return `${Date.now()}_${++usyncSidCounter}`;
 }
 
+/* ------------------------------------------------------------------ */
+/* LID <-> PN mapping (WhatsApp phone-number vs stable-64-bit LID)     */
+/* ------------------------------------------------------------------ */
+
+const lidMapCache = {};
+
+export function rememberLidMapping(lidJid, pnJid) {
+  if (!lidJid || !lidJid.includes('@lid') || !pnJid) return;
+  if (lidMapCache[lidJid] === pnJid) return;
+  lidMapCache[lidJid] = pnJid;
+  console.log(`[lid] mapping armazenado: ${lidJid} -> ${pnJid}`);
+}
+
+/**
+ * Busca o mapeamento LID->PN completo (usync context=lid, como o Baileys).
+ * Custo alto; use resolveLidToPn para consultas individuais.
+ */
+export async function fetchLidToPnMap(query) {
+  try {
+    const res = await query({
+      tag: 'iq',
+      attrs: { to: '@s.whatsapp.net', type: 'get', xmlns: 'usync' },
+      content: [
+        {
+          tag: 'usync',
+          attrs: { sid: generateUSyncSid(), mode: 'query', last: 'true', index: '0', context: 'lid' },
+          content: [
+            { tag: 'query', attrs: {}, content: [{ tag: 'contact', attrs: {} }] },
+            {
+              tag: 'list',
+              attrs: {},
+              content: [
+                { tag: 'user', attrs: {}, content: [{ tag: 'contact', attrs: {}, content: Buffer.from('*') }] }
+              ]
+            }
+          ]
+        }
+      ]
+    }, 5000);
+
+    const usyncNode = (res.content || []).find(c => c && c.tag === 'usync');
+    const listNode = usyncNode ? (usyncNode.content || []).find(c => c && c.tag === 'list') : null;
+    const userNodes = listNode ? (listNode.content || []).filter(c => c && c.tag === 'user') : [];
+
+    const map = {};
+    for (const u of userNodes) {
+      if (u.attrs?.jid && u.attrs?.lid) {
+        map[u.attrs.lid] = u.attrs.jid;
+      }
+    }
+    Object.assign(lidMapCache, map);
+    console.log(`[lid] mapeamento usync: ${Object.keys(map).length} entrada(s)`);
+    return map;
+  } catch (e) {
+    console.warn('[lid] falha ao buscar mapeamento usync:', e.message);
+    return {};
+  }
+}
+
+export async function resolveLidToPn(query, lidJid) {
+  if (!lidJid || !lidJid.includes('@lid')) return null;
+  if (lidMapCache[lidJid]) return lidMapCache[lidJid];
+  const map = await fetchLidToPnMap(query);
+  return map[lidJid] || null;
+}
+
 /**
  * Busca pré-chaves públicas dos destinatários no servidor do WhatsApp em um único IQ em lote.
  */
