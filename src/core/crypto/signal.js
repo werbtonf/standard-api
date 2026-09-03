@@ -494,6 +494,26 @@ export async function fetchPreKeys(query, devicesList, repository, timeoutMs = 5
   }
 }
 
+/**
+ * Gera e PERSISTE um novo prekey não-assinado, retornando { id, pubKey }.
+ * Usado no retry-receipt: o bundle enviado ao remetente deve citar um
+ * prekey que exista no nosso store, senão o refazer de sessão falha
+ * com Invalid PreKey ID (loop observado quando o :9 mantém pkmsg antigo).
+ */
+export async function nextUnsignedPreKey(creds, ev, repo) {
+  const ids = Object.keys(creds.preKeys || {}).map(Number).filter(n => Number.isFinite(n));
+  const maxId = ids.length ? Math.max(...ids) : 0;
+  const newId = maxId + 1;
+  const kp = libsignal.generateKeyPair();
+  const pubKey = Buffer.from(kp.pubKey);
+  creds.preKeys[newId] = {
+    public: pubKey.toString('base64'),
+    private: Buffer.from(kp.privKey).toString('base64')
+  };
+  if (ev) ev.emit('creds.update', { preKeys: creds.preKeys });
+  return { id: newId, pubKey };
+}
+
 const usyncContactCache = new Map(); // phone -> { exists, jid, expiresAt }
 
 /**

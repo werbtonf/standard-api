@@ -22,7 +22,8 @@ import {
   rememberLidMapping,
   resolveLidToPn,
   cachedLidForPn,
-  getLidForPn
+  getLidForPn,
+  nextUnsignedPreKey
 } from '../crypto/signal.js';
 import { encodeMessage, decodeMessage } from '../../services/message.service.js';
 import { prepareMediaMessage, downloadReceivedMedia, getReceivedMediaInfo } from '../../services/media.service.js';
@@ -501,7 +502,8 @@ export async function connectWA(options = {}) {
                         count: '1',
                         id: node.attrs.id,
                         t: node.attrs.t,
-                        v: '1'
+                        v: '1',
+                        error: '0'
                       }
                     },
                     {
@@ -511,6 +513,54 @@ export async function connectWA(options = {}) {
                     }
                   ]
                 };
+                // Bundle E2E completo (padrão Baileys): sem as `<keys>` o
+                // remetente NUNCA consegue refazer a sessão com os ids antigos
+                // (o pkmsg referencia prekey já consumido/expirado) -> loop.
+                const c = currentCreds;
+                if (c?.signedIdentityKey?.public && c?.signedPreKey && c?.signedPreKey?.keyPair?.public) {
+                  try {
+                    const to3ByteArray = (n) => {
+                      const b = Buffer.alloc(3);
+                      b[0] = (n >> 16) & 255; b[1] = (n >> 8) & 255; b[2] = n & 255;
+                      return b;
+                    };
+                    const fresh = await nextUnsignedPreKey(c, ev, signalRepo);
+                    const spk = c.signedPreKey;
+                    retryNode.content.push({
+                      tag: 'keys',
+                      attrs: {},
+                      content: [
+                        { tag: 'type', attrs: {}, content: Buffer.from([5]) },
+                        { tag: 'identity', attrs: {}, content: Buffer.from(c.signedIdentityKey.public) },
+                        {
+                          tag: 'key',
+                          attrs: {},
+                          content: [
+                            { tag: 'id', attrs: {}, content: to3ByteArray(fresh.id) },
+                            { tag: 'value', attrs: {}, content: fresh.pubKey }
+                          ]
+                        },
+                        {
+                          tag: 'skey',
+                          attrs: {},
+                          content: [
+                            { tag: 'id', attrs: {}, content: to3ByteArray(spk.keyId) },
+                            { tag: 'value', attrs: {}, content: Buffer.from(spk.keyPair.public) },
+                            { tag: 'signature', attrs: {}, content: Buffer.from(spk.signature || spk.keyPair.signature || Buffer.alloc(0)) }
+                          ]
+                        },
+                        {
+                          tag: 'device-identity',
+                          attrs: {},
+                          content: c.account ? encodeADVSignedDeviceIdentity(c.account) : Buffer.alloc(0)
+                        }
+                      ]
+                    });
+                    console.log(`[INCOMING] retry-receipt com keys enviado p/ ${from} (novo prekey ${fresh.id})`);
+                  } catch (kerr) {
+                    console.warn(`[INCOMING] falha ao montar keys do retry:`, kerr.message);
+                  }
+                }
                 if (participant) retryNode.attrs.participant = participant;
                 sock.sendNode(retryNode).catch(() => {});
               }
