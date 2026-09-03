@@ -20,7 +20,9 @@ import {
   fetchBlocklist,
   updateProfileStatus,
   rememberLidMapping,
-  resolveLidToPn
+  resolveLidToPn,
+  cachedLidForPn,
+  getLidForPn
 } from '../crypto/signal.js';
 import { encodeMessage, decodeMessage } from '../../services/message.service.js';
 import { prepareMediaMessage, downloadReceivedMedia, getReceivedMediaInfo } from '../../services/media.service.js';
