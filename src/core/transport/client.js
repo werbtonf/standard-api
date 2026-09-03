@@ -718,11 +718,12 @@ export async function connectWA(options = {}) {
       console.warn('[sendMessage] falha ao resolver LID do destinatário:', e.message);
     }
 
-    // Fetch de pré-chaves: espera APENAS o primário (rápido) para responder
-    // o envio. Companions são buscados em background e recebem uma cópia pós-
-    // sessão (a mesma mensagem/id) - sem travar a resposta da API.
+    // Fetch de pré-chaves FORÇADO (pkmsg por envio): sessões antigas/viradas
+    // são re-criadas a cada mensagem, impossível dessincronizar com o lado do
+    // destinatário (relogs de WhatsApp quebram sessões silenciosamente).
+    // Companions são buscados em background e recebem uma cópia pós-sessão.
     const primaryDevices = encryptDevices.filter(d => d.id === 0);
-    await fetchPreKeys(conn.query, primaryDevices, signalRepo, 5000)
+    await fetchPreKeys(conn.query, primaryDevices, signalRepo, 5000, { force: true })
       .catch((e) => console.warn('[sendMessage] fetch primário falhou:', e.message));
 
     const participantNodes = [];
@@ -807,7 +808,7 @@ export async function connectWA(options = {}) {
     for (const dev of encryptDevices.filter(d => d.id > 0)) {
       (async () => {
         try {
-          await fetchPreKeys(conn.query, [dev], signalRepo, 5000);
+          await fetchPreKeys(conn.query, [dev], signalRepo, 5000, { force: true });
           const hasSess = await signalRepo.hasSession(dev.jid);
           if (!hasSess) {
             console.log(`[sendMessage] sem sessão p/ companion ${dev.jid}; cópia pulada`);

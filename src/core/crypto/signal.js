@@ -382,7 +382,7 @@ export async function resolveLidToPn(query, lidJid) {
 /**
  * Busca pré-chaves públicas dos destinatários no servidor do WhatsApp em um único IQ em lote.
  */
-export async function fetchPreKeys(query, devicesList, repository, timeoutMs = 5000) {
+export async function fetchPreKeys(query, devicesList, repository, timeoutMs = 5000, { force = false } = {}) {
   const list = Array.isArray(devicesList) ? devicesList : [devicesList];
   const itemsToFetch = [];
 
@@ -390,7 +390,7 @@ export async function fetchPreKeys(query, devicesList, repository, timeoutMs = 5
     const jid = typeof item === 'string' ? item : item.jid;
     const keyIndex = typeof item === 'object' ? item.keyIndex : undefined;
     const hasSess = await repository.hasSession(jid);
-    if (!hasSess) {
+    if (force || !hasSess) {
       itemsToFetch.push({ jid, keyIndex });
     }
   }
