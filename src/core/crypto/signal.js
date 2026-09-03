@@ -76,6 +76,11 @@ export function makeSignalRepository(creds, ev) {
       if (ev) ev.emit('creds.update', { sessions: creds.sessions });
     },
 
+    async deleteSession(id) {
+      delete creds.sessions[id];
+      if (ev) ev.emit('creds.update', { sessions: creds.sessions });
+    },
+
     async isTrustedIdentity() {
       return true; // Trust on First Use (padrão WhatsApp Web)
     },
@@ -146,6 +151,11 @@ export function makeSignalRepository(creds, ev) {
 
   const injectSession = async (jid, sessionBundle) => {
     const addr = jidToSignalProtocolAddress(jid);
+    // Remove TUDO o registro antigo antes de injetar o bundle NOVO. Sem isso o
+    // SessionCipher pode reaproveitar a ratchet antiga e gerar 'msg' que o
+    // destinatario nao decifra (descartada em silencio). Com sessao zerada, o
+    // encrypt apos o fetch e SEMPRE pkmsg contra o bundle atual do servidor.
+    await storage.deleteSession(addr.toString());
     const builder = new libsignal.SessionBuilder(storage, addr);
     await builder.initOutgoing(sessionBundle);
   };

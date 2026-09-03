@@ -723,6 +723,7 @@ export async function connectWA(options = {}) {
 
       try {
         const enc = await signalRepo.encryptMessage({ jid: deviceJid, data: messageBytes });
+        console.log(`[sendMessage] cifrado ${enc.type} p/ ${deviceJid} (${enc.ciphertext.length}b)`);
         if (enc.type === 'pkmsg') {
           shouldIncludeDeviceIdentity = true;
         }
