@@ -317,6 +317,15 @@ export function rememberLidMapping(lidJid, pnJid) {
   console.log(`[lid] mapping armazenado: ${lidJid} -> ${pnJid}`);
 }
 
+export function cachedLidForPn(pnJid) {
+  if (!pnJid) return null;
+  const pnUser = String(pnJid).split('@')[0].split(':')[0];
+  for (const [lid, pn] of Object.entries(lidMapCache)) {
+    if (pn && String(pn).split('@')[0].split(':')[0] === pnUser) return lid;
+  }
+  return null;
+}
+
 /**
  * Busca o mapeamento LID->PN completo (usync context=lid, como o Baileys).
  * Custo alto; use resolveLidToPn para consultas individuais.
