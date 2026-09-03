@@ -588,6 +588,10 @@ export async function connectWA(options = {}) {
     });
 
     sock.on('close', (code, reason) => {
+      if (keepAliveReq) {
+        clearInterval(keepAliveReq);
+        keepAliveReq = null;
+      }
       if (isAuthenticated) {
         console.warn(`[socket] conexao fechada (code=${code} reason=${reason || ''}). Reconectando...`);
         ev.emit('connection.update', {
