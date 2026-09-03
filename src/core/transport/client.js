@@ -716,13 +716,12 @@ export async function connectWA(options = {}) {
       console.warn('[sendMessage] falha ao resolver LID do destinatário:', e.message);
     }
 
-    // Fetch de pré-chaves em PARALELO: primário + companions (LID). Falha de
-    // um device não bloqueia: o loop pula apenas quem ficou sem sessão.
-    const fetchPromises = encryptDevices.map((dev) =>
-      fetchPreKeys(conn.query, [dev], signalRepo, 5000)
-        .catch((e) => console.warn(`[sendMessage] fetch ${dev.jid} falhou:`, e.message))
-    );
-    await Promise.all(fetchPromises);
+    // Fetch de pré-chaves: espera APENAS o primário (rápido) para responder
+    // o envio. Companions são buscados em background e recebem uma cópia pós-
+    // sessão (a mesma mensagem/id) - sem travar a resposta da API.
+    const primaryDevices = encryptDevices.filter(d => d.id === 0);
+    await fetchPreKeys(conn.query, primaryDevices, signalRepo, 5000)
+      .catch((e) => console.warn('[sendMessage] fetch primário falhou:', e.message));
 
     const participantNodes = [];
     let shouldIncludeDeviceIdentity = false;
@@ -799,6 +798,50 @@ export async function connectWA(options = {}) {
     }
 
     await conn.sock.sendNode(messageNode);
+
+    // Cópia para devices companions (web/desktop do destinatário) em background:
+    // busca sessão e reenvia a MESMA mensagem/id só para o device. Assim a
+    // resposta do envio não espera o fetch lento e o periférico recebe tudo.
+    for (const dev of encryptDevices.filter(d => d.id > 0)) {
+      (async () => {
+        try {
+          await fetchPreKeys(conn.query, [dev], signalRepo, 5000);
+          const hasSess = await signalRepo.hasSession(dev.jid);
+          if (!hasSess) {
+            console.log(`[sendMessage] sem sessão p/ companion ${dev.jid}; cópia pulada`);
+            return;
+          }
+          const enc = await signalRepo.encryptMessage({ jid: dev.jid, data: messageBytes });
+          const companionNode = {
+            tag: 'message',
+            attrs: { id: msgId, to: canonicalJid, type: 'text' },
+            content: [
+              {
+                tag: 'participants',
+                attrs: {},
+                content: [
+                  {
+                    tag: 'to',
+                    attrs: { jid: dev.jid },
+                    content: [{ tag: 'enc', attrs: { v: '2', type: enc.type }, content: enc.ciphertext }]
+                  }
+                ]
+              }
+            ]
+          };
+          if (enc.type === 'pkmsg' && creds.account) {
+            const deviceIdentityBuf = encodeADVSignedDeviceIdentity(creds.account);
+            if (deviceIdentityBuf) {
+              companionNode.content.push({ tag: 'device-identity', attrs: {}, content: deviceIdentityBuf });
+            }
+          }
+          await conn.sock.sendNode(companionNode);
+          console.log(`[sendMessage] cópia companion enviada p/ ${dev.jid} (background)`);
+        } catch (e) {
+          console.warn(`[sendMessage] cancelou companion ${dev.jid}:`, e.message);
+        }
+      })();
+    }
 
     return {
       key: {
