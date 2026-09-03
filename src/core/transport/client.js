@@ -689,34 +689,12 @@ export async function connectWA(options = {}) {
       return true;
     });
 
-    // Migração para endereços LID: o servidor só atende busca de prekeys de
-    // companions pelo LID do destinatário. Cifrar para TODOS os devices é o
-    // requisito "multi-device" do WhatsApp (sem isso, os devices periféricos
-    // do destinatário exibem "Waiting for message...").
+    // IMPORTANTE: participants do nó de mensagem DEVEM usar JIDs PN (domínio
+    // @s.whatsapp.net). Misturar LID nos participants com `to` PN faz a app do
+    // destinatário descartar a mensagem silenciosamente (validado em teste:
+    // 14:56 envios PN puros chegaram; 15:29+ envios LID nunca chegaram).
+    // O fetch de prekeys abaixo segue funcionando com PN (14:56: resposta ok).
     let encryptDevices = filteredDevices;
-    try {
-      let lidJid = cachedLidForPn(canonicalJid);
-      if (!lidJid) {
-        const r = await getLidForPn(conn.query, canonicalJid);
-        if (r.lid) {
-          lidJid = r.lid;
-          rememberLidMapping(r.lid, r.pnJid || canonicalJid);
-        }
-      }
-      if (lidJid) {
-        const lidUser = String(lidJid).split('@')[0];
-        encryptDevices = filteredDevices.map(d => ({
-          id: d.id,
-          jid: d.id === 0 ? `${lidUser}@lid` : `${lidUser}@lid:${d.id}`,
-          keyIndex: undefined
-        }));
-        console.log(`[sendMessage] devices via LID: [${encryptDevices.map(d => d.jid).join(', ')}]`);
-      } else {
-        console.log('[sendMessage] sem mapeamento LID p/ o destinatário; usando PN');
-      }
-    } catch (e) {
-      console.warn('[sendMessage] falha ao resolver LID do destinatário:', e.message);
-    }
 
     // Fetch de pré-chaves FORÇADO (pkmsg por envio): sessões antigas/viradas
     // são re-criadas a cada mensagem, impossível dessincronizar com o lado do
