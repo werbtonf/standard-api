@@ -445,12 +445,12 @@ export async function connectWA(options = {}) {
                   } catch (err) {
                     const msg = String(err.message || '');
                     console.error(`[message decrypt fail] ${jid} ${msg}`);
-                    if (/Key used already|never filled|Chain closed|Bad MAC|No matching sessions|Invalid PreKey ID/.test(msg)) {
-                      // Limpa apenas a sessão local; o retry receipt (enviado abaixo
-                      // em falha) instrui o remetente a re-cifrar. NUNCA rotacionar
-                      // prekeys sob erro: muda os ids que o remetente usa e cria um
-                      // loop de Invalid PreKey ID (remetente nunca refaz o fetch).
-                      signalRepo.clearSessions(jid);
+                    // NUNCA limpar sessão em falha de decrypt (padrão Baileys):
+                    // apagar a sessão só apaga a chance de o pkmsg seguinte do
+                    // remetente alinhar; prekeys NUNCA são rotacionadas sob erro.
+                    if (msg.includes('Invalid PreKey ID')) {
+                      const ownIds = Object.keys(creds.preKeys || {});
+                      console.warn(`[INCOMING] prekeys locais: [${ownIds.join(', ')}] (${ownIds.length})`);
                     }
                     rawErrors.push(err.message);
                     if (i < tryJids.length - 1) {
